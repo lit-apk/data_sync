@@ -40,10 +40,11 @@ shared-certificate procedure.
 
 ## File mode
 
-`Upload file` opens Android's document picker. The first 3,000-character part is
-sent immediately. Each `confirm` action from the watch sends the next part. A
-`cancel` action stops the transfer. Outside file mode, both actions display a
-toast and update the status line.
+The Android UI has separate Text, File, and Settings tabs. Both submitted text
+and uploaded files use the persisted maximum characters per message configured
+in Settings (1 to 10,000, default 300). The first part is sent immediately.
+Each `next` action from the watch sends one pending part; `reset` discards all
+remaining unsent parts.
 
 Build with:
 

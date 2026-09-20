@@ -26,7 +26,7 @@ internal class FileTransfer(content: String, chunkSize: Int = DEFAULT_CHUNK_SIZE
 
     companion object {
         // Conservative character limit for JSON transported by the wearable bridge.
-        const val DEFAULT_CHUNK_SIZE = 3_000
+        const val DEFAULT_CHUNK_SIZE = 300
 
         private fun splitContent(content: String, chunkSize: Int): List<String> {
             require(chunkSize > 0) { "chunkSize must be positive" }

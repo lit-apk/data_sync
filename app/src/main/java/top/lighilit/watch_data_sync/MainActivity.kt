@@ -19,13 +19,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -34,12 +37,16 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import top.lighilit.watch_data_sync.ui.theme.Watch_data_syncTheme
+
+private const val PREFERENCES = "data_sync_settings"
+private const val CHUNK_SIZE_KEY = "chunk_size"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,9 +65,20 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun DataSyncScreen() {
     val context = LocalContext.current
-    var input by remember { mutableStateOf("") }
+    val preferences = remember {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    }
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
+    var input by rememberSaveable { mutableStateOf("") }
     var status by remember { mutableStateOf("Connecting...") }
-    var transfer by remember { mutableStateOf<FileTransfer?>(null) }
+    val transferState = remember { mutableStateOf<FileTransfer?>(null) }
+    val transfer = transferState.value
+    var selectedFile by remember { mutableStateOf<String?>(null) }
+    var chunkSizeText by rememberSaveable {
+        mutableStateOf(
+            preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE).toString()
+        )
+    }
     var errorTrace by rememberSaveable { mutableStateOf(CrashReporter.consumeLastCrash(context)) }
     val controller = remember {
         DataSyncController(context.applicationContext) { source, throwable ->
@@ -68,31 +86,38 @@ private fun DataSyncScreen() {
         }
     }
 
-    fun showAction(action: String) {
-        Toast.makeText(context, "$action pressed on watch", Toast.LENGTH_SHORT).show()
-        status = "$action pressed on watch"
-    }
-
     fun sendNextPart() {
-        val current = transfer ?: return
+        val current = transferState.value ?: run {
+            status = "No file transfer; choose a file in the File tab"
+            return
+        }
         val part = current.pendingPart() ?: run {
-            status = "File transfer complete"
-            transfer = null
+            status = "No unsent parts; choose another file or tap Reset"
             return
         }
         controller.sendText(part.text) { result ->
             if (result == "sent") {
                 current.markSent()
-                if (current.isComplete) {
-                    transfer = null
-                    status = "Sent ${part.number}/${part.total}; file transfer complete"
+                status = if (current.isComplete) {
+                    "Sent ${part.number}/${part.total}; all parts sent"
                 } else {
-                    status = "Sent ${part.number}/${part.total}; confirm on watch for next"
+                    "Sent ${part.number}/${part.total}; tap Next on watch"
                 }
             } else {
                 status = result
             }
         }
+    }
+
+    fun startTransfer(content: String, label: String) {
+        val chunkSize = preferences.getInt(
+            CHUNK_SIZE_KEY,
+            FileTransfer.DEFAULT_CHUNK_SIZE
+        )
+        transferState.value = FileTransfer(content, chunkSize)
+        selectedFile = label
+        status = "Sending part 1"
+        sendNextPart()
     }
 
     val filePicker = rememberLauncherForActivityResult(
@@ -103,9 +128,7 @@ private fun DataSyncScreen() {
                 context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                     ?: error("Unable to open file")
             }.onSuccess { content ->
-                transfer = FileTransfer(content)
-                status = "File selected"
-                sendNextPart()
+                startTransfer(content, uri.lastPathSegment ?: "Selected file")
             }.onFailure {
                 status = "File read failed: ${it.message ?: "unknown error"}"
             }
@@ -113,15 +136,16 @@ private fun DataSyncScreen() {
     }
 
     SideEffect {
-        controller.registerActionCallback("confirm") {
-            if (transfer != null) sendNextPart() else showAction("confirm")
+        controller.registerActionCallback("next") {
+            sendNextPart()
         }
-        controller.registerActionCallback("cancel") {
-            transfer = null
-            showAction("cancel")
+        controller.registerActionCallback("reset") {
+            transferState.value = null
+            selectedFile = null
+            status = "File transfer reset by watch"
         }
         controller.registerActionCallback("received") {
-            status = "Watch received and displayed the text"
+            status = "Watch displayed the latest message"
         }
     }
 
@@ -135,10 +159,7 @@ private fun DataSyncScreen() {
             onDismissRequest = { errorTrace = null },
             title = { Text("Data Sync error") },
             text = {
-                Text(
-                    text = trace,
-                    modifier = Modifier.verticalScroll(rememberScrollState())
-                )
+                Text(trace, modifier = Modifier.verticalScroll(rememberScrollState()))
             },
             confirmButton = {
                 Button(onClick = {
@@ -146,63 +167,107 @@ private fun DataSyncScreen() {
                         as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("Data Sync traceback", trace))
                     Toast.makeText(context, "Traceback copied", Toast.LENGTH_SHORT).show()
-                }) {
-                    Text("Copy")
-                }
+                }) { Text("Copy") }
             },
             dismissButton = {
-                Button(onClick = { errorTrace = null }) {
-                    Text("Dismiss")
-                }
+                Button(onClick = { errorTrace = null }) { Text("Dismiss") }
             }
         )
     }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Data Sync") }) }
-    ) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Data Sync") }) }) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp, vertical = 12.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(
-                onClick = { controller.requestPermission { status = it } },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Authorize watch")
+            PrimaryTabRow(selectedTabIndex = selectedTab) {
+                listOf("Text", "File", "Settings").forEachIndexed { index, label ->
+                    Tab(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        text = { Text(label) }
+                    )
+                }
             }
-            Button(
-                onClick = { filePicker.launch(arrayOf("text/*", "application/json")) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (transfer == null) "Upload file" else "Choose another file")
-            }
-            transfer?.let {
-                Text("File mode: ${it.sentParts}/${it.totalParts} parts sent")
-            }
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp),
-                label = { Text("Text to send") },
-                minLines = 6
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Button(
-                    onClick = { controller.sendText(input) { status = it } },
-                    enabled = input.isNotEmpty()
-                ) {
-                    Text("Submit")
+                Text(status, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                when (selectedTab) {
+                    0 -> {
+                        Text("Long text is split using the maximum size configured in Settings.")
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp),
+                            label = { Text("Text to send") },
+                            minLines = 7
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Button(
+                                onClick = { startTransfer(input, "Text input") },
+                                enabled = input.isNotEmpty()
+                            ) { Text("Submit") }
+                        }
+                    }
+
+                    1 -> {
+                        Text("Each file message uses the maximum size configured in Settings.")
+                        Button(
+                            onClick = {
+                                filePicker.launch(arrayOf("text/*", "application/json"))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (transfer == null) "Upload file" else "Choose another file")
+                        }
+                        selectedFile?.let { Text(it) }
+                        transfer?.let {
+                            Text("Parts sent: ${it.sentParts}/${it.totalParts}")
+                            Text("Use Next on the watch for the next part, or Reset to discard the rest.")
+                        }
+                    }
+
+                    else -> {
+                        Text("Watch authorization")
+                        Button(
+                            onClick = { controller.requestPermission { status = it } },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Authorize watch") }
+                        Text("Maximum characters per message")
+                        OutlinedTextField(
+                            value = chunkSizeText,
+                            onValueChange = { value ->
+                                if (value.all(Char::isDigit)) chunkSizeText = value
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Characters") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true
+                        )
+                        Button(
+                            onClick = {
+                                val value = chunkSizeText.toIntOrNull()
+                                if (value == null || value !in 1..10_000) {
+                                    status = "Chunk size must be between 1 and 10000"
+                                } else {
+                                    preferences.edit().putInt(CHUNK_SIZE_KEY, value).apply()
+                                    status = "Chunk size saved: $value characters"
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Save settings") }
+                    }
                 }
             }
         }
