@@ -46,6 +46,17 @@ in Settings (1 to 10,000, default 300). The first part is sent immediately.
 Each `next` action from the watch sends one pending part; `reset` discards all
 remaining unsent parts.
 
+The File tab stores the latest reading positions as absolute character offsets,
+not message numbers, so changing the maximum message size does not change the
+resume position. The Settings page controls the retained history count (default
+10) and whether newly selected files are copied into internal app storage
+(default off). History entries can be resumed by tapping them or edited to change
+their offset and source. Internal backup names are made unique automatically.
+
+When the watch connects, it requests this history and displays base filenames.
+Selecting a filename remotely resumes that entry. Missing entries and unreadable
+sources are returned to the watch as visible errors.
+
 Build with:
 
 ```sh

@@ -23,7 +23,7 @@ class DataSyncController(
         callbacks[action] = callback
     }
 
-    fun connect(onStatus: (String) -> Unit) {
+    fun connect(onStatus: (String) -> Unit, registerMessages: Boolean = true) {
         runCatching {
             val wearable = Class.forName("com.xiaomi.xms.wearable.Wearable")
             val nodeApi = wearable.getMethod("getNodeApi", Context::class.java).invoke(null, context)
@@ -40,7 +40,7 @@ class DataSyncController(
                     if (id == null) {
                         postStatus(onStatus, "No paired watch")
                     } else {
-                        authorize(id, onStatus)
+                        authorize(id, onStatus, registerMessages)
                     }
                 }
             }
@@ -57,21 +57,24 @@ class DataSyncController(
         }
     }
 
-    fun requestPermission(onStatus: (String) -> Unit) {
+    fun requestPermission(onStatus: (String) -> Unit, registerMessages: Boolean = true) {
         val id = currentNodeId ?: return postStatus(onStatus, "No paired watch")
-        requestDeviceManagerPermission(id, onStatus)
+        requestDeviceManagerPermission(id, onStatus, registerMessages)
     }
 
     fun sendText(text: String, onStatus: (String) -> Unit) {
+        sendJson(JSONObject().put("type", "text").put("content", text), onStatus)
+    }
+
+    fun sendJson(payload: JSONObject, onStatus: (String) -> Unit) {
         val api = messageApi ?: return postStatus(onStatus, "Not connected")
         val id = currentNodeId ?: return postStatus(onStatus, "No paired watch")
         runCatching {
-            val payload = JSONObject().put("type", "text").put("content", text)
-                .toString().toByteArray(Charsets.UTF_8)
+            val bytes = payload.toString().toByteArray(Charsets.UTF_8)
             val method = api.javaClass.methods.first {
                 it.name == "sendMessage" && it.parameterTypes.size == 2
             }
-            val task = requireNotNull(method.invoke(api, id, payload)) {
+            val task = requireNotNull(method.invoke(api, id, bytes)) {
                 "sendMessage returned no task"
             }
             addTaskListener(task, "addOnSuccessListener") { postStatus(onStatus, "sent") }
@@ -125,7 +128,7 @@ class DataSyncController(
         }
     }
 
-    private fun authorize(nodeId: String, onStatus: (String) -> Unit) {
+    private fun authorize(nodeId: String, onStatus: (String) -> Unit, registerMessages: Boolean) {
         val api = authApi ?: return postStatus(onStatus, "Authorization API unavailable")
         reportErrors("Checking Xiaomi wearable permission") {
             val permission = deviceManagerPermission()
@@ -137,9 +140,9 @@ class DataSyncController(
             }
             addTaskListener(task, "addOnSuccessListener") { granted ->
                 if (granted == true) {
-                    finishConnection(nodeId, onStatus)
+                    finishConnection(nodeId, onStatus, registerMessages)
                 } else {
-                    requestDeviceManagerPermission(nodeId, onStatus)
+                    requestDeviceManagerPermission(nodeId, onStatus, registerMessages)
                 }
             }
             addTaskListener(task, "addOnFailureListener") { error ->
@@ -149,7 +152,11 @@ class DataSyncController(
         }
     }
 
-    private fun requestDeviceManagerPermission(nodeId: String, onStatus: (String) -> Unit) {
+    private fun requestDeviceManagerPermission(
+        nodeId: String,
+        onStatus: (String) -> Unit,
+        registerMessages: Boolean
+    ) {
         val api = authApi ?: return postStatus(onStatus, "Authorization API unavailable")
         postStatus(onStatus, "Grant watch permission in Xiaomi Health")
         reportErrors("Requesting Xiaomi wearable permission") {
@@ -165,7 +172,7 @@ class DataSyncController(
             }
             addTaskListener(task, "addOnSuccessListener") { granted ->
                 if (arrayContainsPermission(granted, "data_manager")) {
-                    finishConnection(nodeId, onStatus)
+                    finishConnection(nodeId, onStatus, registerMessages)
                 } else {
                     postStatus(onStatus, "Watch permission denied; tap Authorize watch")
                 }
@@ -177,9 +184,15 @@ class DataSyncController(
         }
     }
 
-    private fun finishConnection(nodeId: String, onStatus: (String) -> Unit) {
+    private fun finishConnection(
+        nodeId: String,
+        onStatus: (String) -> Unit,
+        registerMessages: Boolean
+    ) {
         reportErrors("Registering Xiaomi message listener") {
-            if (listener == null) {
+            if (!registerMessages) {
+                postStatus(onStatus, "Connected and authorized")
+            } else if (listener == null) {
                 registerMessageListener(nodeId, onStatus)
             } else {
                 postStatus(onStatus, "Connected and authorized")
