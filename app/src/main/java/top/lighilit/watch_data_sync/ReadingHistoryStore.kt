@@ -2,6 +2,7 @@ package top.lighilit.watch_data_sync
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -54,7 +55,17 @@ internal class ReadingHistoryStore(private val context: Context) {
         File(entry.source).readText()
     } else {
         context.contentResolver.openInputStream(Uri.parse(entry.source))
-            ?.bufferedReader()?.use { it.readText() } ?: error("Unable to open ${entry.name}")
+            ?.use { EpubTextExtractor.readText(it, entry.name) }
+            ?: error("Unable to open ${entry.name}")
+    }
+
+    fun displayName(uri: Uri): String {
+        val queried = context.contentResolver.query(
+            uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+        )?.use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
+        }
+        return queried ?: uri.lastPathSegment?.substringAfterLast('/') ?: "document.txt"
     }
 
     fun updateOffset(id: String, offset: Int, limit: Int) {
@@ -89,7 +100,7 @@ internal class ReadingHistoryStore(private val context: Context) {
             }
             backup -> {
                 val content = context.contentResolver.openInputStream(Uri.parse(newSource))
-                    ?.bufferedReader()?.use { it.readText() }
+                    ?.use { EpubTextExtractor.readText(it, newName) }
                     ?: error("Unable to open $newName")
                 val target = uniqueBackupFile(newName)
                 target.writeText(content)

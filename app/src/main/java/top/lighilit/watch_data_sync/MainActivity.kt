@@ -64,6 +64,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private val DOCUMENT_MIME_TYPES = arrayOf("text/*", "application/json", "application/epub+zip")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DataSyncScreen() {
@@ -169,9 +171,9 @@ private fun DataSyncScreen() {
                         Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
                 }
+                val name = historyStore.displayName(uri)
                 val content = context.contentResolver.openInputStream(uri)
-                    ?.bufferedReader()?.use { it.readText() } ?: error("Unable to open file")
-                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "document.txt"
+                    ?.use { EpubTextExtractor.readText(it, name) } ?: error("Unable to open file")
                 val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false)
                 val entry = historyStore.addUri(uri, name, backupOnSend, content, historyLimit())
                 history = historyStore.load()
@@ -186,7 +188,7 @@ private fun DataSyncScreen() {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             editSource = uri.toString()
-            editName = uri.lastPathSegment?.substringAfterLast('/') ?: editName
+            editName = historyStore.displayName(uri)
         }
     }
 
@@ -300,7 +302,7 @@ private fun DataSyncScreen() {
                         ) { Text("Submit") }
                     } else {
                         Button(
-                            onClick = { filePicker.launch(arrayOf("text/*", "application/json")) },
+                            onClick = { filePicker.launch(DOCUMENT_MIME_TYPES) },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Upload file") }
                         selectedLabel?.let { Text("Active: $it") }
@@ -352,7 +354,7 @@ private fun DataSyncScreen() {
                             onOffsetChange = { if (it.all(Char::isDigit)) editOffset = it },
                             onNameChange = { editName = it },
                             onBackupChange = { editBackup = it },
-                            onChoosePath = { editFilePicker.launch(arrayOf("text/*", "application/json")) },
+                            onChoosePath = { editFilePicker.launch(DOCUMENT_MIME_TYPES) },
                             onDelete = { deleteEntry = it }
                         )
                     }
