@@ -127,7 +127,7 @@ private fun DataSyncScreen() {
             if (result == "sent") {
                 transfer.markSent()
                 activeHistoryId.value?.let {
-                    historyStore.updateOffset(it, transfer.currentOffset, historyLimit())
+                    historyStore.updateOffset(it, part.startOffset, historyLimit())
                     history = historyStore.load()
                 }
                 status = if (transfer.isComplete) {

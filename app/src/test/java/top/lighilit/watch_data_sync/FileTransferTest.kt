@@ -45,4 +45,25 @@ class FileTransferTest {
         transfer.markSent()
         assertEquals(7, transfer.currentOffset)
     }
+
+    @Test
+    fun savedOffsetMatchesRequestedPageStart() {
+        val content = "x".repeat(700)
+        val transfer = FileTransfer(content, chunkSize = 300)
+
+        // First read: request page 1 -> start offset is 0.
+        val firstPage = transfer.pendingPart()!!
+        assertEquals(0, firstPage.startOffset)
+        transfer.markSent()
+
+        // Request page 2 -> start offset is 1 * msg_size.
+        val secondPage = transfer.pendingPart()!!
+        assertEquals(300, secondPage.startOffset)
+        transfer.markSent()
+
+        // Request page 3 -> start offset is 2 * msg_size.
+        val thirdPage = transfer.pendingPart()!!
+        assertEquals(600, thirdPage.startOffset)
+    }
+
 }
