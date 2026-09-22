@@ -66,4 +66,40 @@ class FileTransferTest {
         assertEquals(600, thirdPage.startOffset)
     }
 
+    @Test
+    fun previousPartReturnsLastSentPage() {
+        val transfer = FileTransfer("abcdefgh", chunkSize = 3)
+
+        assertEquals(FileTransfer.Part("abc", 0, 3), transfer.pendingPart())
+        transfer.markSent()
+        assertEquals(FileTransfer.Part("def", 3, 6), transfer.pendingPart())
+        transfer.markSent()
+        assertEquals(FileTransfer.Part("gh", 6, 8), transfer.pendingPart())
+        transfer.markSent()
+
+        assertEquals(FileTransfer.Part("def", 3, 6), transfer.previousPart())
+        transfer.markPreviousSent()
+        assertEquals(FileTransfer.Part("abc", 0, 3), transfer.previousPart())
+        transfer.markPreviousSent()
+
+        assertNull(transfer.previousPart())
+    }
+
+    @Test
+    fun nextAfterPreviousContinuesForward() {
+        val transfer = FileTransfer("abcdefgh", chunkSize = 3)
+
+        assertEquals(FileTransfer.Part("abc", 0, 3), transfer.pendingPart())
+        transfer.markSent()
+        assertEquals(FileTransfer.Part("def", 3, 6), transfer.pendingPart())
+        transfer.markSent()
+
+        assertEquals(FileTransfer.Part("abc", 0, 3), transfer.previousPart())
+        transfer.markPreviousSent()
+
+        assertEquals(FileTransfer.Part("def", 3, 6), transfer.pendingPart())
+        transfer.markSent()
+        assertEquals(FileTransfer.Part("gh", 6, 8), transfer.pendingPart())
+    }
+
 }

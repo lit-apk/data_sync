@@ -72,7 +72,7 @@ private fun DataSyncScreen() {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     val historyStore = remember { ReadingHistoryStore(context.applicationContext) }
-    val transferState = remember { mutableStateOf<FileTransfer?>(null) }
+    val readerState = remember { mutableStateOf<Reader?>(null) }
     val activeHistoryId = remember { mutableStateOf<String?>(null) }
     val remoteHistoryRequest = remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
@@ -117,25 +117,25 @@ private fun DataSyncScreen() {
     }
 
     fun sendNextPart() {
-        val transfer = transferState.value ?: run {
+        val reader = readerState.value ?: run {
             status = "No active transfer"
             return
         }
-        val part = transfer.pendingPart() ?: run {
+        val part = reader.nextPart() ?: run {
             status = "No unsent content"
             return
         }
         controller.sendText(part.text) { result ->
             if (result == "sent") {
-                transfer.markSent()
+                reader.markSent()
                 activeHistoryId.value?.let {
                     historyStore.updateOffset(it, part.startOffset, historyLimit())
                     history = historyStore.load()
                 }
-                status = if (transfer.isComplete) {
-                    "Sent through character ${transfer.currentOffset}; complete"
+                status = if (reader.isComplete) {
+                    "Sent through character ${reader.currentOffset}; complete"
                 } else {
-                    "Sent through character ${transfer.currentOffset}; tap Next on watch"
+                    "Sent through character ${reader.currentOffset}; tap Next on watch"
                 }
             } else {
                 status = result
@@ -147,9 +147,46 @@ private fun DataSyncScreen() {
         }
     }
 
+    fun sendPreviousPart() {
+        val reader = readerState.value ?: run {
+            status = "No active transfer"
+            return
+        }
+        runCatching { reader.previousPart() }
+            .onSuccess { part ->
+                if (part == null) {
+                    status = "Already at the first page"
+                    return@onSuccess
+                }
+                controller.sendText(part.text) { result ->
+                    if (result == "sent") {
+                        reader.markPreviousSent()
+                        activeHistoryId.value?.let {
+                            historyStore.updateOffset(it, part.startOffset, historyLimit())
+                            history = historyStore.load()
+                        }
+                        status = "Sent from character ${part.startOffset}"
+                    } else {
+                        status = result
+                    }
+                }
+            }
+            .onFailure { error ->
+                val message = error.message ?: "Previous page is not supported"
+                status = message
+                if (error is PreviousPageNotSupportedException) {
+                    controller.sendJson(
+                        JSONObject().put("type", "not_supported").put("message", message)
+                    ) { result ->
+                        if (result != "sent") status = "Notify watch failed: $result"
+                    }
+                }
+            }
+    }
+
     fun startTransfer(content: String, label: String, offset: Int = 0, historyId: String? = null) {
         val chunkSize = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
-        transferState.value = FileTransfer(content, chunkSize, offset)
+        readerState.value = Reader.of(content, label, chunkSize, offset)
         activeHistoryId.value = historyId
         selectedLabel = label
         status = "Sending from character ${offset.coerceIn(0, content.length)}"
@@ -194,8 +231,9 @@ private fun DataSyncScreen() {
 
     SideEffect {
         controller.registerActionCallback("next") { sendNextPart() }
+        controller.registerActionCallback("previous") { sendPreviousPart() }
         controller.registerActionCallback("reset") {
-            transferState.value = null
+            readerState.value = null
             activeHistoryId.value = null
             selectedLabel = null
             remoteHistoryRequest.value = false
@@ -306,7 +344,7 @@ private fun DataSyncScreen() {
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Upload file") }
                         selectedLabel?.let { Text("Active: $it") }
-                        transferState.value?.let { Text("Character offset: ${it.currentOffset}") }
+                        readerState.value?.let { Text("Character offset: ${it.currentOffset}") }
                         HistoryView(
                             history = history,
                             editMode = historyEditMode,
