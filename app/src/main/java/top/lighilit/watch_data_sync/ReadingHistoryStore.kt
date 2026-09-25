@@ -39,10 +39,10 @@ internal class ReadingHistoryStore(private val context: Context) {
         }
     }
 
-    fun addUri(uri: Uri, name: String, backup: Boolean, content: String, limit: Int): ReadingHistory {
+    fun addUri(uri: Uri, name: String, backup: Boolean, content: String?, limit: Int): ReadingHistory {
         val entry = if (backup) {
             val file = uniqueBackupFile(name)
-            file.writeText(content)
+            file.writeText(content ?: error("Unable to read $name"))
             ReadingHistory(UUID.randomUUID().toString(), file.name, file.absolutePath, true, 0)
         } else {
             ReadingHistory(UUID.randomUUID().toString(), name, uri.toString(), false, 0)
@@ -51,12 +51,23 @@ internal class ReadingHistoryStore(private val context: Context) {
         return entry
     }
 
-    fun read(entry: ReadingHistory): String = if (entry.backedUp) {
-        File(entry.source).readText()
+    fun source(entry: ReadingHistory): TextSource = if (entry.backedUp) {
+        PlainTextSource { File(entry.source).inputStream() }
     } else {
-        context.contentResolver.openInputStream(Uri.parse(entry.source))
-            ?.use { EpubTextExtractor.readText(it, entry.name) }
-            ?: error("Unable to open ${entry.name}")
+        source(Uri.parse(entry.source), entry.name)
+    }
+
+    fun source(uri: Uri, name: String): TextSource {
+        if (EpubTextExtractor.isEpub(name)) {
+            val content = context.contentResolver.openInputStream(uri)
+                ?.use { EpubTextExtractor.readText(it, name) }
+                ?: error("Unable to open $name")
+            return StringTextSource(content)
+        }
+        return PlainTextSource {
+            context.contentResolver.openInputStream(uri)
+                ?: error("Unable to open $name")
+        }
     }
 
     fun displayName(uri: Uri): String {

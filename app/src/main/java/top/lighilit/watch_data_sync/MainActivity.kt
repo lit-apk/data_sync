@@ -184,18 +184,18 @@ private fun DataSyncScreen() {
             }
     }
 
-    fun startTransfer(content: String, label: String, offset: Int = 0, historyId: String? = null) {
+    fun startTransfer(source: TextSource, label: String, length: Int? = null, offset: Int = 0, historyId: String? = null) {
         val chunkSize = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
-        readerState.value = Reader.of(content, label, chunkSize, offset)
+        readerState.value = Reader.of(source, label, chunkSize, offset)
         activeHistoryId.value = historyId
         selectedLabel = label
-        status = "Sending from character ${offset.coerceIn(0, content.length)}"
+        status = "Sending from character ${if (length == null) offset else offset.coerceIn(0, length)}"
         sendNextPart()
     }
 
     fun resume(entry: ReadingHistory) {
-        runCatching { historyStore.read(entry) }
-            .onSuccess { startTransfer(it, entry.name, entry.offset, entry.id) }
+        runCatching { historyStore.source(entry) }
+            .onSuccess { startTransfer(it, entry.name, offset = entry.offset, historyId = entry.id) }
             .onFailure { status = "Open failed: ${it.message}" }
     }
 
@@ -209,12 +209,22 @@ private fun DataSyncScreen() {
                     )
                 }
                 val name = historyStore.displayName(uri)
-                val content = context.contentResolver.openInputStream(uri)
-                    ?.use { EpubTextExtractor.readText(it, name) } ?: error("Unable to open file")
                 val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false)
+                val content = if (backupOnSend) {
+                    context.contentResolver.openInputStream(uri)
+                        ?.use { EpubTextExtractor.readText(it, name) }
+                        ?: error("Unable to open file")
+                } else {
+                    null
+                }
                 val entry = historyStore.addUri(uri, name, backupOnSend, content, historyLimit())
                 history = historyStore.load()
-                startTransfer(content, entry.name, entry.offset, entry.id)
+                startTransfer(
+                    historyStore.source(entry),
+                    entry.name,
+                    offset = entry.offset,
+                    historyId = entry.id
+                )
             }.onFailure { status = "File read failed: ${it.message}" }
         }
     }
@@ -249,10 +259,10 @@ private fun DataSyncScreen() {
             if (entry == null) {
                 sendHistoryError("History entry no longer exists")
             } else {
-                runCatching { historyStore.read(entry) }
+                runCatching { historyStore.source(entry) }
                     .onSuccess {
                         remoteHistoryRequest.value = true
-                        startTransfer(it, entry.name, entry.offset, entry.id)
+                        startTransfer(it, entry.name, offset = entry.offset, historyId = entry.id)
                     }
                     .onFailure { sendHistoryError("Unable to open ${entry.name}: ${it.message}") }
             }
@@ -334,7 +344,7 @@ private fun DataSyncScreen() {
                             minLines = 7
                         )
                         Button(
-                            onClick = { startTransfer(input, "Text input") },
+                            onClick = { startTransfer(StringTextSource(input), "Text input", input.length) },
                             enabled = input.isNotEmpty(),
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("Submit") }

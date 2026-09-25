@@ -18,8 +18,8 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
     abstract fun previousPart(): FileTransfer.Part?
 
     companion object {
-        fun of(content: String, name: String, chunkSize: Int, offset: Int): Reader {
-            val transfer = FileTransfer(content, chunkSize, offset)
+        fun of(source: TextSource, name: String, chunkSize: Int, offset: Int): Reader {
+            val transfer = FileTransfer(source, chunkSize, offset)
             return if (EpubTextExtractor.isEpub(name)) {
                 EpubReader(transfer)
             } else {
