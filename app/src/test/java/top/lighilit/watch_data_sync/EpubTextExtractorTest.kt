@@ -33,6 +33,23 @@ class EpubTextExtractorTest {
         )
     }
 
+    @Test
+    fun streamsEpubTextWithoutSplittingMarkup() {
+        val epub = buildEpub(
+            manifest = mapOf("ch1" to "text/ch1.xhtml"),
+            spine = listOf("ch1"),
+            chapters = mapOf(
+                "OEBPS/text/ch1.xhtml" to
+                    "<html><body><p>Alpha &amp; beta.</p><p>Gamma.</p></body></html>"
+            )
+        )
+        val source = EpubTextExtractor.source { ByteArrayInputStream(epub) }
+
+        assertEquals(SourcePart("Alpha &", 7, false), source.readPart(0, 7))
+        assertEquals(SourcePart(" beta.", 13, false), source.readPart(7, 6))
+        assertEquals(SourcePart("\n\nGamma.\n\n", 23, true), source.readPart(13, 20))
+    }
+
     private fun buildEpub(
         manifest: Map<String, String>,
         spine: List<String>,

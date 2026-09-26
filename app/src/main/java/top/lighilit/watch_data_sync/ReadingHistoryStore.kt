@@ -59,10 +59,10 @@ internal class ReadingHistoryStore(private val context: Context) {
 
     fun source(uri: Uri, name: String): TextSource {
         if (EpubTextExtractor.isEpub(name)) {
-            val content = context.contentResolver.openInputStream(uri)
-                ?.use { EpubTextExtractor.readText(it, name) }
-                ?: error("Unable to open $name")
-            return StringTextSource(content)
+            return EpubTextExtractor.source {
+                context.contentResolver.openInputStream(uri)
+                    ?: error("Unable to open $name")
+            }
         }
         return PlainTextSource {
             context.contentResolver.openInputStream(uri)

@@ -2,6 +2,8 @@ package top.lighilit.watch_data_sync
 
 import java.io.ByteArrayInputStream
 import java.io.InputStream
+import java.io.InputStreamReader
+import java.io.Reader
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
@@ -13,6 +15,14 @@ internal object EpubTextExtractor {
 
     fun readText(input: InputStream, name: String): String =
         if (isEpub(name)) extract(input) else input.bufferedReader().readText()
+
+    fun source(openStream: () -> InputStream): TextSource = EpubTextSource(openStream)
+
+    internal fun parseContainerRootfileForSource(xml: String) = parseContainerRootfile(xml)
+    internal fun parseManifestForSource(xml: String) = parseManifest(xml)
+    internal fun parseSpineForSource(xml: String) = parseSpine(xml)
+    internal fun normalizeForSource(path: String) = normalize(path)
+    internal fun resolveForSource(base: String, href: String) = resolve(base, href)
 
     fun extract(input: InputStream): String {
         val bytes = input.readBytes()
@@ -135,6 +145,10 @@ internal object EpubTextExtractor {
             .joinToString("\n\n")
     }
 
+    internal fun decodeEntitiesForSource(text: String): String {
+        return decodeEntities(text)
+    }
+
     private fun decodeEntities(text: String): String {
         return Regex("&(#x[0-9a-fA-F]+|#\\d+|[a-zA-Z]+);").replace(text) { match ->
             val body = match.groupValues[1]
@@ -169,4 +183,222 @@ internal object EpubTextExtractor {
         "reg" to "\u00AE",
         "trade" to "\u2122"
     )
+}
+
+private class EpubTextSource(private val openStream: () -> InputStream) : TextSource {
+    private val metadata by lazy { readMetadata() }
+
+    override fun readPart(startOffset: Int, maxChars: Int): SourcePart? {
+        require(startOffset >= 0) { "startOffset must not be negative" }
+        require(maxChars > 0) { "maxChars must be positive" }
+
+        val epub = metadata
+        epub.openTextReader(openStream).use { reader ->
+                skipChars(reader, startOffset)
+                val buffer = CharArray(maxChars + 1)
+                val count = readUpTo(reader, buffer)
+                if (count <= 0) return null
+
+                val returnedCount = if (
+                    count > maxChars && Character.isHighSurrogate(buffer[maxChars - 1])
+                ) maxChars - 1 else minOf(count, maxChars)
+                return SourcePart(
+                    text = String(buffer, 0, returnedCount),
+                    endOffset = startOffset + returnedCount,
+                    endOfSource = count <= maxChars
+                )
+        }
+    }
+
+    private fun readMetadata(): EpubMetadata {
+        val container = readEntry("META-INF/container.xml")
+            ?: error("Not a valid EPUB (missing META-INF/container.xml)")
+        val opfPath = EpubTextExtractor.parseContainerRootfileForSource(container)
+        val opf = readEntry(opfPath) ?: error("Missing package document: $opfPath")
+        return EpubMetadata(
+            opfPath.substringBeforeLast('/', ""),
+            EpubTextExtractor.parseManifestForSource(opf),
+            EpubTextExtractor.parseSpineForSource(opf)
+        )
+    }
+
+    private fun readEntry(path: String): String? {
+        val target = EpubTextExtractor.normalizeForSource(path)
+        openStream().use { input ->
+            ZipInputStream(input).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (EpubTextExtractor.normalizeForSource(entry.name) == target) {
+                        return zip.bufferedReader().readText()
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+        }
+        return null
+    }
+
+    private fun skipChars(reader: Reader, count: Int) {
+        var remaining = count.toLong()
+        while (remaining > 0) {
+            val skipped = reader.skip(remaining)
+            if (skipped > 0) remaining -= skipped
+            else if (reader.read() < 0) return
+            else remaining--
+        }
+    }
+
+    private fun readUpTo(reader: Reader, buffer: CharArray): Int {
+        var total = 0
+        while (total < buffer.size) {
+            val count = reader.read(buffer, total, buffer.size - total)
+            if (count < 0) break
+            if (count > 0) total += count
+            else {
+                val character = reader.read()
+                if (character < 0) break
+                buffer[total++] = character.toChar()
+            }
+        }
+        return total
+    }
+
+    private data class EpubMetadata(
+        val base: String,
+        val manifest: Map<String, String>,
+        val spine: List<String>
+    ) {
+        fun openTextReader(openStream: () -> InputStream): Reader {
+            val paths = spine.mapNotNull { manifest[it] }
+                .map { EpubTextExtractor.resolveForSource(base, it) }
+            return EpubTextReader(openStream, paths)
+        }
+    }
+}
+
+private class EpubTextReader(
+    private val openStream: () -> InputStream,
+    private val paths: List<String>
+) : Reader() {
+    private var chapterIndex = 0
+    private var chapterReader: Reader? = null
+    private var ignoredTag: String? = null
+    private val pending = ArrayDeque<Char>()
+    private var lookahead = -2
+    private var hasOutput = false
+    private var afterBlockBreak = false
+
+    override fun read(charBuffer: CharArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
+        var count = 0
+        while (count < length) {
+            while (pending.isEmpty()) {
+                if (!fillPending()) {
+                    val reader = nextChapter() ?: return if (count == 0) -1 else count
+                    chapterReader = reader
+                }
+            }
+            charBuffer[offset + count] = pending.removeFirst()
+            count++
+        }
+        return if (count == 0) -1 else count
+    }
+
+    private fun fillPending(): Boolean {
+        while (pending.isEmpty()) {
+            val first = readInput()
+            if (first < 0) return false
+            if (first != '<'.code) {
+                if (ignoredTag == null) {
+                    if (first == '&'.code) {
+                        val entity = StringBuilder("&")
+                        var character = readInput()
+                        while (character >= 0 && entity.length <= 32) {
+                            entity.append(character.toChar())
+                            if (character == ';'.code) break
+                            character = readInput()
+                        }
+                        EpubTextExtractor.decodeEntitiesForSource(entity.toString())
+                            .forEach { pending.addLast(it) }
+                    } else if (Character.isWhitespace(first)) {
+                        var character = readInput()
+                        while (character >= 0 && Character.isWhitespace(character)) {
+                            character = readInput()
+                        }
+                        if (character >= 0) lookahead = character
+                        if (hasOutput && !afterBlockBreak && character >= 0 && character != '<'.code) {
+                            pending.addLast(' ')
+                        }
+                    } else {
+                        pending.addLast(first.toChar())
+                    }
+                    if (pending.isNotEmpty()) {
+                        hasOutput = true
+                        afterBlockBreak = false
+                    }
+                }
+                continue
+            }
+
+            val tag = StringBuilder("<")
+            var character = readInput()
+            while (character >= 0) {
+                tag.append(character.toChar())
+                if (character == '>'.code) break
+                character = readInput()
+            }
+            val tagText = tag.toString()
+            val closing = Regex("^</\\s*([A-Za-z0-9]+)").find(tagText)?.groupValues?.get(1)?.lowercase()
+            val opening = Regex("^<\\s*([A-Za-z0-9]+)").find(tagText)?.groupValues?.get(1)?.lowercase()
+            if (ignoredTag != null) {
+                if (closing == ignoredTag) ignoredTag = null
+            } else if (opening in setOf("script", "style", "head")) {
+                ignoredTag = opening
+            } else if (opening == "br") {
+                pending.addLast('\n')
+                afterBlockBreak = true
+            } else if (closing in BLOCK_TAGS) {
+                pending.addLast('\n')
+                pending.addLast('\n')
+                afterBlockBreak = true
+            }
+        }
+        return pending.isNotEmpty()
+    }
+
+    private fun readInput(): Int {
+        if (lookahead != -2) {
+            val value = lookahead
+            lookahead = -2
+            return value
+        }
+        return chapterReader?.read() ?: -1
+    }
+
+    private fun nextChapter(): Reader? {
+        chapterReader?.close()
+        chapterReader = null
+        while (chapterIndex < paths.size) {
+            val target = paths[chapterIndex++]
+            val zip = ZipInputStream(openStream())
+            var entry = zip.nextEntry
+            while (entry != null) {
+                if (EpubTextExtractor.normalizeForSource(entry.name) == target) {
+                    return InputStreamReader(zip, Charsets.UTF_8)
+                }
+                entry = zip.nextEntry
+            }
+            zip.close()
+        }
+        return null
+    }
+
+    override fun close() {
+        chapterReader?.close()
+        chapterReader = null
+    }
+
+    companion object {
+        private val BLOCK_TAGS = setOf("p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "blockquote", "section", "article")
+    }
 }
