@@ -8,8 +8,14 @@ internal data class SourcePart(
     val endOfSource: Boolean
 )
 
+internal data class TextChapter(val index: Int, val title: String, val startOffset: Int)
+
 internal interface TextSource {
     fun readPart(startOffset: Int, maxChars: Int): SourcePart?
+
+    fun chapters(): List<TextChapter> = emptyList()
+
+    fun chapterAt(offset: Int): Int = chapters().lastOrNull { it.startOffset <= offset }?.index ?: 0
 }
 
 internal class PlainTextSource(private val openStream: () -> InputStream) : TextSource {

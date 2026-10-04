@@ -13,7 +13,8 @@ internal data class ReadingHistory(
     val name: String,
     val source: String,
     val backedUp: Boolean,
-    val offset: Int
+    val offset: Int,
+    val chapter: Int = 0
 )
 
 internal class ReadingHistoryStore(private val context: Context) {
@@ -32,7 +33,8 @@ internal class ReadingHistoryStore(private val context: Context) {
                         name = item.optString("name"),
                         source = item.optString("source"),
                         backedUp = item.optBoolean("backedUp"),
-                        offset = item.optInt("offset").coerceAtLeast(0)
+                        offset = item.optInt("offset").coerceAtLeast(0),
+                        chapter = item.optInt("chapter").coerceAtLeast(0)
                     )
                 )
             }
@@ -42,7 +44,13 @@ internal class ReadingHistoryStore(private val context: Context) {
     fun addUri(uri: Uri, name: String, backup: Boolean, content: String?, limit: Int): ReadingHistory {
         val entry = if (backup) {
             val file = uniqueBackupFile(name)
-            file.writeText(content ?: error("Unable to read $name"))
+            if (EpubTextExtractor.isEpub(name)) {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    file.outputStream().use { output -> input.copyTo(output) }
+                } ?: error("Unable to open $name")
+            } else {
+                file.writeText(content ?: error("Unable to read $name"))
+            }
             ReadingHistory(UUID.randomUUID().toString(), file.name, file.absolutePath, true, 0)
         } else {
             ReadingHistory(UUID.randomUUID().toString(), name, uri.toString(), false, 0)
@@ -52,7 +60,11 @@ internal class ReadingHistoryStore(private val context: Context) {
     }
 
     fun source(entry: ReadingHistory): TextSource = if (entry.backedUp) {
-        PlainTextSource { File(entry.source).inputStream() }
+        if (EpubTextExtractor.isEpub(entry.name)) {
+            EpubTextExtractor.source { File(entry.source).inputStream() }
+        } else {
+            PlainTextSource { File(entry.source).inputStream() }
+        }
     } else {
         source(Uri.parse(entry.source), entry.name)
     }
@@ -84,6 +96,11 @@ internal class ReadingHistoryStore(private val context: Context) {
         saveEntry(entry.copy(offset = offset.coerceAtLeast(0)), limit)
     }
 
+    fun updatePosition(id: String, offset: Int, chapter: Int, limit: Int) {
+        val entry = load().firstOrNull { it.id == id } ?: return
+        saveEntry(entry.copy(offset = offset.coerceAtLeast(0), chapter = chapter.coerceAtLeast(0)), limit)
+    }
+
     fun delete(id: String) {
         val entries = load()
         entries.firstOrNull { it.id == id && it.backedUp }?.let { File(it.source).delete() }
@@ -96,6 +113,7 @@ internal class ReadingHistoryStore(private val context: Context) {
                     .put("source", it.source)
                     .put("backedUp", it.backedUp)
                     .put("offset", it.offset)
+                    .put("chapter", it.chapter)
             )
         }
         preferences.edit().putString("entries", array.toString()).apply()
@@ -110,11 +128,14 @@ internal class ReadingHistoryStore(private val context: Context) {
                 entry.copy(name = target.name, source = target.absolutePath, backedUp = true)
             }
             backup -> {
-                val content = context.contentResolver.openInputStream(Uri.parse(newSource))
-                    ?.use { EpubTextExtractor.readText(it, newName) }
-                    ?: error("Unable to open $newName")
                 val target = uniqueBackupFile(newName)
-                target.writeText(content)
+                context.contentResolver.openInputStream(Uri.parse(newSource))?.use { input ->
+                    if (EpubTextExtractor.isEpub(newName)) {
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    } else {
+                        target.writeText(input.bufferedReader().use { it.readText() })
+                    }
+                } ?: error("Unable to open $newName")
                 entry.copy(name = target.name, source = target.absolutePath, backedUp = true)
             }
             else -> {
@@ -142,6 +163,7 @@ internal class ReadingHistoryStore(private val context: Context) {
                     .put("source", it.source)
                     .put("backedUp", it.backedUp)
                     .put("offset", it.offset)
+                    .put("chapter", it.chapter)
             )
         }
         preferences.edit().putString("entries", array.toString()).apply()
@@ -162,6 +184,7 @@ internal class ReadingHistoryStore(private val context: Context) {
                     .put("source", it.source)
                     .put("backedUp", it.backedUp)
                     .put("offset", it.offset)
+                    .put("chapter", it.chapter)
             )
         }
         preferences.edit().putString("entries", array.toString()).apply()

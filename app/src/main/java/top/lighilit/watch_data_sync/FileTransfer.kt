@@ -23,6 +23,8 @@ internal class FileTransfer(
     val isComplete: Boolean
         get() = complete
 
+    fun chapterAt(offset: Int): Int = source.chapterAt(offset)
+
     fun pendingPart(): Part? {
         val sourcePart = source.readPart(offset, chunkSize) ?: run {
             complete = true

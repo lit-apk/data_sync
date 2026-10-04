@@ -188,6 +188,44 @@ internal object EpubTextExtractor {
 private class EpubTextSource(private val openStream: () -> InputStream) : TextSource {
     private val metadata by lazy { readMetadata() }
 
+    override fun chapters(): List<TextChapter> {
+        var offset = 0
+        return metadata.paths.mapIndexed { index, path ->
+            if (index > 0) offset += 2
+            val chapter = TextChapter(
+                index = index,
+                title = chapterTitle(path, index),
+                startOffset = offset
+            )
+            EpubTextReader(openStream, listOf(path)).use { reader ->
+                val buffer = CharArray(1024)
+                while (true) {
+                    val count = reader.read(buffer)
+                    if (count < 0) break
+                    offset += count
+                }
+            }
+            chapter
+        }
+    }
+
+    private fun chapterTitle(path: String, index: Int): String {
+        val fallback = path.substringAfterLast('/').substringBeforeLast('.')
+            .ifBlank { "Chapter ${index + 1}" }
+        return EpubTextReader(openStream, listOf(path)).use { reader ->
+            val buffer = CharArray(512)
+            val count = reader.read(buffer)
+            if (count <= 0) return@use fallback
+            String(buffer, 0, count)
+                .lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.isNotEmpty() }
+                ?.take(80)
+                ?.ifBlank { fallback }
+                ?: fallback
+        }
+    }
+
     override fun readPart(startOffset: Int, maxChars: Int): SourcePart? {
         require(startOffset >= 0) { "startOffset must not be negative" }
         require(maxChars > 0) { "maxChars must be positive" }
@@ -268,9 +306,15 @@ private class EpubTextSource(private val openStream: () -> InputStream) : TextSo
         val manifest: Map<String, String>,
         val spine: List<String>
     ) {
-        fun openTextReader(openStream: () -> InputStream): Reader {
-            val paths = spine.mapNotNull { manifest[it] }
+        val paths: List<String>
+            get() = spine.mapNotNull { manifest[it] }
                 .map { EpubTextExtractor.resolveForSource(base, it) }
+                .filterNot { path ->
+                    path.substringAfterLast('/').substringBeforeLast('.')
+                        .lowercase() in setOf("cover", "info", "info2", "content", "img")
+                }
+
+        fun openTextReader(openStream: () -> InputStream): Reader {
             return EpubTextReader(openStream, paths)
         }
     }
@@ -296,6 +340,10 @@ private class EpubTextReader(
                 if (!fillPending()) {
                     val reader = nextChapter() ?: return if (count == 0) -1 else count
                     chapterReader = reader
+                    if (chapterIndex > 1) {
+                        pending.addLast('\n')
+                        pending.addLast('\n')
+                    }
                 }
             }
             charBuffer[offset + count] = pending.removeFirst()

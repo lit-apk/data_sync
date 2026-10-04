@@ -83,11 +83,16 @@ private fun DataSyncScreen() {
     var historyEditMode by remember { mutableStateOf(false) }
     var editingId by remember { mutableStateOf<String?>(null) }
     var editOffset by remember { mutableStateOf("") }
+    var editChapter by remember { mutableStateOf(0) }
     var editName by remember { mutableStateOf("") }
     var editSource by remember { mutableStateOf("") }
     var editBackup by remember { mutableStateOf(false) }
     var deleteEntry by remember { mutableStateOf<ReadingHistory?>(null) }
     var errorTrace by rememberSaveable { mutableStateOf(CrashReporter.consumeLastCrash(context)) }
+    var chapterDialog by remember { mutableStateOf<List<TextChapter>?>(null) }
+    var chapterDialogAction by remember { mutableStateOf<((TextChapter) -> Unit)?>(null) }
+    var editChapters by remember { mutableStateOf<List<TextChapter>>(emptyList()) }
+    var editChapterExpanded by remember { mutableStateOf(false) }
     val controller = remember {
         DataSyncController(context.applicationContext) { source, throwable ->
             errorTrace = CrashReporter.format(source, throwable)
@@ -184,18 +189,61 @@ private fun DataSyncScreen() {
             }
     }
 
-    fun startTransfer(source: TextSource, label: String, length: Int? = null, offset: Int = 0, historyId: String? = null) {
+    fun startTransfer(source: TextSource, label: String, length: Int? = null, offset: Int = 0, historyId: String? = null, chapter: Int = 0) {
         val chunkSize = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
-        readerState.value = Reader.of(source, label, chunkSize, offset)
+        val selectedOffset = source.chapters().getOrNull(chapter)?.startOffset ?: offset
+        readerState.value = Reader.of(source, label, chunkSize, selectedOffset)
         activeHistoryId.value = historyId
         selectedLabel = label
-        status = "Sending from character ${if (length == null) offset else offset.coerceIn(0, length)}"
+        status = "Sending from character ${if (length == null) selectedOffset else selectedOffset.coerceIn(0, length)}"
         sendNextPart()
+    }
+
+    fun openSource(
+        source: TextSource,
+        label: String,
+        offset: Int = 0,
+        historyId: String? = null,
+        chapter: Int = 0,
+        chooseChapter: Boolean = false
+    ) {
+        val chapters = source.chapters()
+        if (EpubTextExtractor.isEpub(label) && chapters.isNotEmpty() && (historyId == null || chooseChapter)) {
+            chapterDialog = chapters
+            chapterDialogAction = { selected ->
+                chapterDialog = null
+                chapterDialogAction = null
+                startTransfer(source, label, offset = selected.startOffset, historyId = historyId, chapter = selected.index)
+            }
+        } else {
+            startTransfer(source, label, offset = offset, historyId = historyId, chapter = chapter)
+        }
+    }
+
+    chapterDialog?.let { chapters ->
+        AlertDialog(
+            onDismissRequest = {
+                chapterDialog = null
+                chapterDialogAction = null
+            },
+            title = { Text("Select chapter") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    chapters.forEach { item ->
+                        Button(
+                            onClick = { chapterDialogAction?.invoke(item) },
+                            modifier = Modifier.fillMaxWidth()
+                            ) { Text("${item.index + 1}. ${item.title}") }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
     }
 
     fun resume(entry: ReadingHistory) {
         runCatching { historyStore.source(entry) }
-            .onSuccess { startTransfer(it, entry.name, offset = entry.offset, historyId = entry.id) }
+            .onSuccess { openSource(it, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter) }
             .onFailure { status = "Open failed: ${it.message}" }
     }
 
@@ -219,11 +267,12 @@ private fun DataSyncScreen() {
                 }
                 val entry = historyStore.addUri(uri, name, backupOnSend, content, historyLimit())
                 history = historyStore.load()
-                startTransfer(
+                openSource(
                     historyStore.source(entry),
                     entry.name,
                     offset = entry.offset,
-                    historyId = entry.id
+                    historyId = entry.id,
+                    chooseChapter = true
                 )
             }.onFailure { status = "File read failed: ${it.message}" }
         }
@@ -236,6 +285,8 @@ private fun DataSyncScreen() {
             }
             editSource = uri.toString()
             editName = historyStore.displayName(uri)
+            editChapters = runCatching { historyStore.source(uri, editName).chapters() }
+                .getOrElse { emptyList() }
         }
     }
 
@@ -262,7 +313,7 @@ private fun DataSyncScreen() {
                 runCatching { historyStore.source(entry) }
                     .onSuccess {
                         remoteHistoryRequest.value = true
-                        startTransfer(it, entry.name, offset = entry.offset, historyId = entry.id)
+                        openSource(it, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter)
                     }
                     .onFailure { sendHistoryError("Unable to open ${entry.name}: ${it.message}") }
             }
@@ -367,9 +418,13 @@ private fun DataSyncScreen() {
                             onEdit = { entry ->
                                 editingId = entry.id
                                 editOffset = entry.offset.toString()
+                                editChapter = entry.chapter
                                 editName = entry.name
                                 editSource = entry.source
                                 editBackup = entry.backedUp
+                                editChapters = runCatching { historyStore.source(entry).chapters() }
+                                    .getOrElse { emptyList() }
+                                editChapterExpanded = false
                             },
                             onHeaderAction = {
                                 if (!historyEditMode) {
@@ -383,8 +438,9 @@ private fun DataSyncScreen() {
                                         if (offset == null || offset < 0) {
                                             status = "Offset must be a natural number"
                                         } else runCatching {
+                                            val selectedOffset = editChapters.getOrNull(editChapter)?.startOffset ?: offset
                                             historyStore.update(
-                                                entry.copy(offset = offset),
+                                                entry.copy(offset = selectedOffset, chapter = editChapter),
                                                 editName,
                                                 editSource,
                                                 editBackup,
@@ -400,6 +456,11 @@ private fun DataSyncScreen() {
                                 }
                             },
                             onOffsetChange = { if (it.all(Char::isDigit)) editOffset = it },
+                            editChapter = editChapter,
+                            editChapters = editChapters,
+                            editChapterExpanded = editChapterExpanded,
+                            onChapterChange = { editChapter = it; editChapterExpanded = false },
+                            onChapterToggle = { editChapterExpanded = !editChapterExpanded },
                             onNameChange = { editName = it },
                             onBackupChange = { editBackup = it },
                             onChoosePath = { editFilePicker.launch(DOCUMENT_MIME_TYPES) },
@@ -417,12 +478,17 @@ private fun HistoryView(
     editMode: Boolean,
     editingId: String?,
     editOffset: String,
+    editChapter: Int,
+    editChapters: List<TextChapter>,
+    editChapterExpanded: Boolean,
     editName: String,
     editSource: String,
     editBackup: Boolean,
     onEntryClick: (ReadingHistory) -> Unit,
     onEdit: (ReadingHistory) -> Unit,
     onOffsetChange: (String) -> Unit,
+    onChapterChange: (Int) -> Unit,
+    onChapterToggle: () -> Unit,
     onNameChange: (String) -> Unit,
     onBackupChange: (Boolean) -> Unit,
     onChoosePath: () -> Unit,
@@ -448,7 +514,32 @@ private fun HistoryView(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(entry.name, style = MaterialTheme.typography.titleSmall)
                 if (editingId == entry.id) {
-                    NumberField("Character offset", editOffset, onOffsetChange)
+                    if (editChapters.isNotEmpty() && EpubTextExtractor.isEpub(entry.name)) {
+                        val selectedChapter = editChapters.firstOrNull { it.index == editChapter }
+                        Button(onClick = onChapterToggle, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                if (editChapterExpanded) {
+                                    "Chapter: ${selectedChapter?.index?.plus(1) ?: editChapter + 1}. " +
+                                        "${selectedChapter?.title ?: "Unknown"} ▲"
+                                } else {
+                                    "Chapter: ${selectedChapter?.index?.plus(1) ?: editChapter + 1}. " +
+                                        "${selectedChapter?.title ?: "Unknown"} ▼"
+                                }
+                            )
+                        }
+                        if (editChapterExpanded) {
+                            editChapters.forEach { chapter ->
+                                Button(
+                                    onClick = { onChapterChange(chapter.index) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("${chapter.index + 1}. ${chapter.title}")
+                                }
+                            }
+                        }
+                    } else {
+                        NumberField("Character offset", editOffset, onOffsetChange)
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Back up in app storage")
                         Checkbox(editBackup, onBackupChange)

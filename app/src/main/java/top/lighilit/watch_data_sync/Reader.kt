@@ -9,6 +9,8 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
     val isComplete: Boolean
         get() = transfer.isComplete
 
+    fun chapterAt(offset: Int): Int = transfer.chapterAt(offset)
+
     fun nextPart(): FileTransfer.Part? = transfer.pendingPart()
 
     fun markSent() = transfer.markSent()
