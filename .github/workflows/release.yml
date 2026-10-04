@@ -14,24 +14,17 @@ jobs:
     env:
       KEYSTORE_PASSWORD: ${{ secrets.storePassword }}
       KEY_PASSWORD: ${{ secrets.keyPassword }}
+      KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
     steps:
       - name: Check out application
         uses: actions/checkout@v4
 
-      - name: Check out signing material
-        uses: actions/checkout@v4
-        with:
-          repository: lit-apk/data_sync_sign
-          path: signing
-          sparse-checkout: data-sync-release.jks
-          token: ${{ github.token }}
-
       - name: Configure signing
         run: |
           mkdir -p sign
-          cp signing/data-sync-release.jks sign/data-sync-release.jks
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > sign/release.keystore
           cat > keystore.properties <<EOF
-          storeFile=sign/data-sync-release.jks
+          storeFile=sign/release.keystore
           storePassword=${KEYSTORE_PASSWORD}
           keyAlias=data-sync
           keyPassword=${KEY_PASSWORD}
