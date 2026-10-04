@@ -1,0 +1,55 @@
+name: Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_PASSWORD: ${{ secrets.storePassword }}
+      KEY_PASSWORD: ${{ secrets.keyPassword }}
+    steps:
+      - name: Check out application
+        uses: actions/checkout@v4
+
+      - name: Check out signing material
+        uses: actions/checkout@v4
+        with:
+          repository: lit-apk/data_sync_sign
+          path: signing
+          sparse-checkout: data-sync-release.jks
+          token: ${{ github.token }}
+
+      - name: Configure signing
+        run: |
+          mkdir -p sign
+          cp signing/data-sync-release.jks sign/data-sync-release.jks
+          cat > keystore.properties <<EOF
+          storeFile=sign/data-sync-release.jks
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=data-sync
+          keyPassword=${KEY_PASSWORD}
+          EOF
+
+      - name: Build and test
+        run: bash ./gradlew test assembleRelease lint
+
+      - name: Verify signer
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            app/build/outputs/apk/release/app-release.apk
