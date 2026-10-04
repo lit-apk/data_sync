@@ -38,7 +38,9 @@ jobs:
           EOF
 
       - name: Build and test
-        run: bash ./gradlew test assembleRelease lint
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test assembleRelease lint
 
       - name: Verify signer
         run: |
