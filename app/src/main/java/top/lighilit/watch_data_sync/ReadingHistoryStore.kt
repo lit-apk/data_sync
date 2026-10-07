@@ -14,7 +14,8 @@ internal data class ReadingHistory(
     val source: String,
     val backedUp: Boolean,
     val offset: Int,
-    val chapter: Int = 0
+    val chapter: Int = 0,
+    val localOffset: Boolean = false
 )
 
 internal class ReadingHistoryStore(private val context: Context) {
@@ -34,7 +35,8 @@ internal class ReadingHistoryStore(private val context: Context) {
                         source = item.optString("source"),
                         backedUp = item.optBoolean("backedUp"),
                         offset = item.optInt("offset").coerceAtLeast(0),
-                        chapter = item.optInt("chapter").coerceAtLeast(0)
+                        chapter = item.optInt("chapter").coerceAtLeast(0),
+                        localOffset = item.optBoolean("localOffset")
                     )
                 )
             }
@@ -98,7 +100,14 @@ internal class ReadingHistoryStore(private val context: Context) {
 
     fun updatePosition(id: String, offset: Int, chapter: Int, limit: Int) {
         val entry = load().firstOrNull { it.id == id } ?: return
-        saveEntry(entry.copy(offset = offset.coerceAtLeast(0), chapter = chapter.coerceAtLeast(0)), limit)
+        saveEntry(
+            entry.copy(
+                offset = offset.coerceAtLeast(0),
+                chapter = chapter.coerceAtLeast(0),
+                localOffset = EpubTextExtractor.isEpub(entry.name)
+            ),
+            limit
+        )
     }
 
     fun delete(id: String) {

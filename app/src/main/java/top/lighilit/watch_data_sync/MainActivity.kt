@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import top.lighilit.watch_data_sync.ui.theme.Watch_data_syncTheme
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,6 +77,7 @@ private fun DataSyncScreen() {
     val historyStore = remember { ReadingHistoryStore(context.applicationContext) }
     val readerState = remember { mutableStateOf<Reader?>(null) }
     val activeHistoryId = remember { mutableStateOf<String?>(null) }
+    val activeChapter = remember { mutableStateOf(0) }
     val remoteHistoryRequest = remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var input by rememberSaveable { mutableStateOf("") }
@@ -93,6 +97,8 @@ private fun DataSyncScreen() {
     var chapterDialogAction by remember { mutableStateOf<((TextChapter) -> Unit)?>(null) }
     var editChapters by remember { mutableStateOf<List<TextChapter>>(emptyList()) }
     var editChapterExpanded by remember { mutableStateOf(false) }
+    val ioExecutor = remember { Executors.newSingleThreadExecutor() }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val controller = remember {
         DataSyncController(context.applicationContext) { source, throwable ->
             errorTrace = CrashReporter.format(source, throwable)
@@ -134,7 +140,7 @@ private fun DataSyncScreen() {
             if (result == "sent") {
                 reader.markSent()
                 activeHistoryId.value?.let {
-                    historyStore.updateOffset(it, part.startOffset, historyLimit())
+                    historyStore.updatePosition(it, part.startOffset, activeChapter.value, historyLimit())
                     history = historyStore.load()
                 }
                 status = if (reader.isComplete) {
@@ -167,7 +173,7 @@ private fun DataSyncScreen() {
                     if (result == "sent") {
                         reader.markPreviousSent()
                         activeHistoryId.value?.let {
-                            historyStore.updateOffset(it, part.startOffset, historyLimit())
+                            historyStore.updatePosition(it, part.startOffset, activeChapter.value, historyLimit())
                             history = historyStore.load()
                         }
                         status = "Sent from character ${part.startOffset}"
@@ -191,11 +197,11 @@ private fun DataSyncScreen() {
 
     fun startTransfer(source: TextSource, label: String, length: Int? = null, offset: Int = 0, historyId: String? = null, chapter: Int = 0) {
         val chunkSize = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
-        val selectedOffset = source.chapters().getOrNull(chapter)?.startOffset ?: offset
-        readerState.value = Reader.of(source, label, chunkSize, selectedOffset)
+        readerState.value = Reader.of(source, label, chunkSize, offset, chapter)
         activeHistoryId.value = historyId
+        activeChapter.value = chapter
         selectedLabel = label
-        status = "Sending from character ${if (length == null) selectedOffset else selectedOffset.coerceIn(0, length)}"
+        status = "Sending from character ${if (length == null) offset else offset.coerceIn(0, length)}"
         sendNextPart()
     }
 
@@ -207,16 +213,33 @@ private fun DataSyncScreen() {
         chapter: Int = 0,
         chooseChapter: Boolean = false
     ) {
-        val chapters = source.chapters()
-        if (EpubTextExtractor.isEpub(label) && chapters.isNotEmpty() && (historyId == null || chooseChapter)) {
-            chapterDialog = chapters
-            chapterDialogAction = { selected ->
-                chapterDialog = null
-                chapterDialogAction = null
-                startTransfer(source, label, offset = selected.startOffset, historyId = historyId, chapter = selected.index)
+        if (!EpubTextExtractor.isEpub(label)) {
+            startTransfer(source, label, offset = offset, historyId = historyId)
+            return
+        }
+        status = "Preparing EPUB..."
+        ioExecutor.execute {
+            runCatching {
+                source.chapters()
             }
-        } else {
-            startTransfer(source, label, offset = offset, historyId = historyId, chapter = chapter)
+                .onSuccess { chapters ->
+                    mainHandler.post {
+                        if (chapters.isNotEmpty() && (historyId == null || chooseChapter)) {
+                            chapterDialog = chapters
+                            chapterDialogAction = { selected ->
+                                chapterDialog = null
+                                chapterDialogAction = null
+                                status = "Preparing chapter..."
+                                startTransfer(source, label, offset = 0, historyId = historyId, chapter = selected.index)
+                            }
+                        } else {
+                            startTransfer(source, label, offset = offset, historyId = historyId, chapter = chapter)
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    mainHandler.post { status = "Open failed: ${error.message}" }
+                }
         }
     }
 
@@ -250,31 +273,32 @@ private fun DataSyncScreen() {
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
             runCatching {
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
+                ioExecutor.execute {
+                    runCatching {
+                        runCatching {
+                            context.contentResolver.takePersistableUriPermission(
+                                uri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        }
+                        val name = historyStore.displayName(uri)
+                        val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false)
+                        val content = if (backupOnSend && !EpubTextExtractor.isEpub(name) && !EpubTextExtractor.isPdf(name)) {
+                            context.contentResolver.openInputStream(uri)
+                                ?.use { EpubTextExtractor.readText(it, name) }
+                                ?: error("Unable to open file")
+                        } else null
+                        val entry = historyStore.addUri(uri, name, backupOnSend, content, historyLimit())
+                        val source = historyStore.source(entry)
+                        mainHandler.post {
+                            history = historyStore.load()
+                            openSource(source, entry.name, offset = entry.offset, historyId = entry.id, chooseChapter = true)
+                        }
+                    }.onFailure { error ->
+                        mainHandler.post { status = "File read failed: ${error.message}" }
+                    }
                 }
-                val name = historyStore.displayName(uri)
-                val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false)
-                val content = if (backupOnSend) {
-                    context.contentResolver.openInputStream(uri)
-                        ?.use { EpubTextExtractor.readText(it, name) }
-                        ?: error("Unable to open file")
-                } else {
-                    null
-                }
-                val entry = historyStore.addUri(uri, name, backupOnSend, content, historyLimit())
-                history = historyStore.load()
-                openSource(
-                    historyStore.source(entry),
-                    entry.name,
-                    offset = entry.offset,
-                    historyId = entry.id,
-                    chooseChapter = true
-                )
-            }.onFailure { status = "File read failed: ${it.message}" }
+            }
         }
     }
 
@@ -322,7 +346,10 @@ private fun DataSyncScreen() {
 
     DisposableEffect(controller) {
         controller.connect(onStatus = { status = it })
-        onDispose { controller.close() }
+        onDispose {
+            controller.close()
+            ioExecutor.shutdownNow()
+        }
     }
 
     errorTrace?.let { trace ->

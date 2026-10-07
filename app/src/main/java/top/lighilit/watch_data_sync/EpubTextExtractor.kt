@@ -23,6 +23,10 @@ internal object EpubTextExtractor {
     internal fun parseSpineForSource(xml: String) = parseSpine(xml)
     internal fun normalizeForSource(path: String) = normalize(path)
     internal fun resolveForSource(base: String, href: String) = resolve(base, href)
+    internal fun parseXmlForSource(xml: String) = parseXml(xml)
+    internal fun parseNavigationIdForSource(xml: String) = parseNavigationId(xml)
+    internal fun parseSpineTocForSource(xml: String) = parseSpineToc(xml)
+    internal fun parseNcxIdForSource(xml: String) = parseNcxId(xml)
 
     fun extract(input: InputStream): String {
         val bytes = input.readBytes()
@@ -87,6 +91,30 @@ internal object EpubTextExtractor {
                 if (idref.isNotEmpty()) add(idref)
             }
         }
+    }
+
+    private fun parseSpineToc(xml: String): String? {
+        val root = parseXml(xml)
+        val nodes = root.getElementsByTagName("spine")
+        return (0 until nodes.length).map { nodes.item(it) }.filterIsInstance<Element>()
+            .firstOrNull()?.getAttribute("toc")?.ifBlank { null }
+    }
+
+    private fun parseNavigationId(xml: String): String? {
+        val root = parseXml(xml)
+        val nodes = root.getElementsByTagName("item")
+        return (0 until nodes.length).map { nodes.item(it) }.filterIsInstance<Element>()
+            .firstOrNull { element ->
+                element.getAttribute("properties").split(Regex("\\s+")).contains("nav")
+            }?.getAttribute("id")?.ifBlank { null }
+    }
+
+    private fun parseNcxId(xml: String): String? {
+        val root = parseXml(xml)
+        val nodes = root.getElementsByTagName("item")
+        return (0 until nodes.length).map { nodes.item(it) }.filterIsInstance<Element>()
+            .firstOrNull { it.getAttribute("media-type") == "application/x-dtbncx+xml" }
+            ?.getAttribute("id")?.ifBlank { null }
     }
 
     private fun parseXml(xml: String): Element {
@@ -185,53 +213,38 @@ internal object EpubTextExtractor {
     )
 }
 
-private class EpubTextSource(private val openStream: () -> InputStream) : TextSource {
+private class EpubTextSource(
+    private val openStream: () -> InputStream,
+    private val chapterPath: String? = null
+) : TextSource {
     private val metadata by lazy { readMetadata() }
 
     override fun chapters(): List<TextChapter> {
-        var offset = 0
+        val titles = metadata.navigationTitles(openStream)
         return metadata.paths.mapIndexed { index, path ->
-            if (index > 0) offset += 2
-            val chapter = TextChapter(
+            TextChapter(
                 index = index,
-                title = chapterTitle(path, index),
-                startOffset = offset
+                title = titles[path] ?: filenameTitle(path, index),
+                startOffset = 0
             )
-            EpubTextReader(openStream, listOf(path)).use { reader ->
-                val buffer = CharArray(1024)
-                while (true) {
-                    val count = reader.read(buffer)
-                    if (count < 0) break
-                    offset += count
-                }
-            }
-            chapter
         }
     }
 
-    private fun chapterTitle(path: String, index: Int): String {
-        val fallback = path.substringAfterLast('/').substringBeforeLast('.')
+    private fun filenameTitle(path: String, index: Int): String =
+        path.substringAfterLast('/').substringBeforeLast('.')
             .ifBlank { "Chapter ${index + 1}" }
-        return EpubTextReader(openStream, listOf(path)).use { reader ->
-            val buffer = CharArray(512)
-            val count = reader.read(buffer)
-            if (count <= 0) return@use fallback
-            String(buffer, 0, count)
-                .lineSequence()
-                .map { it.trim() }
-                .firstOrNull { it.isNotEmpty() }
-                ?.take(80)
-                ?.ifBlank { fallback }
-                ?: fallback
-        }
-    }
+
+    override fun chapterSource(index: Int): TextSource =
+        EpubTextSource(openStream, metadata.paths.getOrNull(index))
+
 
     override fun readPart(startOffset: Int, maxChars: Int): SourcePart? {
         require(startOffset >= 0) { "startOffset must not be negative" }
         require(maxChars > 0) { "maxChars must be positive" }
 
         val epub = metadata
-        epub.openTextReader(openStream).use { reader ->
+        val paths = chapterPath?.let { listOf(it) } ?: epub.paths
+        EpubTextReader(openStream, paths).use { reader ->
                 skipChars(reader, startOffset)
                 val buffer = CharArray(maxChars + 1)
                 val count = readUpTo(reader, buffer)
@@ -256,7 +269,17 @@ private class EpubTextSource(private val openStream: () -> InputStream) : TextSo
         return EpubMetadata(
             opfPath.substringBeforeLast('/', ""),
             EpubTextExtractor.parseManifestForSource(opf),
-            EpubTextExtractor.parseSpineForSource(opf)
+            EpubTextExtractor.parseSpineForSource(opf),
+            EpubTextExtractor.parseManifestForSource(opf).let { manifest ->
+                val id = EpubTextExtractor.parseNavigationIdForSource(opf)
+                id?.let { manifest[it] }
+                    ?: manifest[EpubTextExtractor.parseSpineTocForSource(opf)]
+            }?.let { EpubTextExtractor.resolveForSource(opfPath.substringBeforeLast('/', ""), it) },
+            EpubTextExtractor.parseManifestForSource(opf).let { manifest ->
+                val id = EpubTextExtractor.parseSpineTocForSource(opf)
+                    ?: EpubTextExtractor.parseNcxIdForSource(opf)
+                id?.let { manifest[it] }
+            }?.let { EpubTextExtractor.resolveForSource(opfPath.substringBeforeLast('/', ""), it) }
         )
     }
 
@@ -275,6 +298,8 @@ private class EpubTextSource(private val openStream: () -> InputStream) : TextSo
         }
         return null
     }
+
+    private fun readEntryForMetadata(path: String): String? = readEntry(path)
 
     private fun skipChars(reader: Reader, count: Int) {
         var remaining = count.toLong()
@@ -304,7 +329,9 @@ private class EpubTextSource(private val openStream: () -> InputStream) : TextSo
     private data class EpubMetadata(
         val base: String,
         val manifest: Map<String, String>,
-        val spine: List<String>
+        val spine: List<String>,
+        val navigationPath: String?,
+        val ncxPath: String?
     ) {
         val paths: List<String>
             get() = spine.mapNotNull { manifest[it] }
@@ -316,6 +343,36 @@ private class EpubTextSource(private val openStream: () -> InputStream) : TextSo
 
         fun openTextReader(openStream: () -> InputStream): Reader {
             return EpubTextReader(openStream, paths)
+        }
+
+        fun navigationTitles(openStream: () -> InputStream): Map<String, String> {
+            val path = navigationPath ?: return emptyMap()
+            val html = EpubTextSource(openStream).readEntryForMetadata(path) ?: return emptyMap()
+            val result = mutableMapOf<String, String>()
+            val anchorPattern = Regex(
+                "(?is)<a\\b[^>]*href=[\\\"']([^\\\"'#]+)(?:#[^\\\"']*)?[\\\"'][^>]*>(.*?)</a>"
+            )
+            anchorPattern.findAll(html).forEach { match ->
+                val href = EpubTextExtractor.resolveForSource(base, match.groupValues[1])
+                val title = EpubTextExtractor.decodeEntitiesForSource(
+                    Regex("<[^>]*>").replace(match.groupValues[2], "")
+                ).replace(Regex("\\s+"), " ").trim().take(80)
+                if (title.isNotEmpty()) result[href] = title
+            }
+            if (result.isNotEmpty()) return result
+            val ncx = ncxPath?.let { EpubTextSource(openStream).readEntryForMetadata(it) } ?: return result
+            val root = EpubTextExtractor.parseXmlForSource(ncx)
+            val points = root.getElementsByTagName("navPoint")
+            for (index in 0 until points.length) {
+                val point = points.item(index) as? Element ?: continue
+                val label = point.getElementsByTagName("text").item(0)?.textContent?.trim().orEmpty()
+                val src = point.getElementsByTagName("content").item(0)
+                    ?.let { (it as? Element)?.getAttribute("src") }.orEmpty()
+                if (label.isNotEmpty() && src.isNotEmpty()) {
+                    result[EpubTextExtractor.resolveForSource(base, src.substringBefore('#'))] = label.take(80)
+                }
+            }
+            return result
         }
     }
 }

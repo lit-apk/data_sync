@@ -16,6 +16,8 @@ internal interface TextSource {
     fun chapters(): List<TextChapter> = emptyList()
 
     fun chapterAt(offset: Int): Int = chapters().lastOrNull { it.startOffset <= offset }?.index ?: 0
+
+    fun chapterSource(index: Int): TextSource = this
 }
 
 internal class PlainTextSource(private val openStream: () -> InputStream) : TextSource {
