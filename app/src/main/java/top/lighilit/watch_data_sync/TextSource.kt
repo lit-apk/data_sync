@@ -11,6 +11,9 @@ internal data class SourcePart(
 internal data class TextChapter(val index: Int, val title: String, val startOffset: Int)
 
 internal interface TextSource {
+    val chaptered: Boolean
+        get() = false
+
     fun readPart(startOffset: Int, maxChars: Int): SourcePart?
 
     fun chapters(): List<TextChapter> = emptyList()

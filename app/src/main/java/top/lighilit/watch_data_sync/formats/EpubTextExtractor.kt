@@ -1,6 +1,9 @@
 package top.lighilit.watch_data_sync
 
+import android.content.Context
+import android.net.Uri
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.Reader
@@ -8,13 +11,18 @@ import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
 
-internal object EpubTextExtractor {
-
-    fun isEpub(name: String): Boolean =
-        name.substringAfterLast('.', "").lowercase() == "epub"
-
-    fun readText(input: InputStream, name: String): String =
-        if (isEpub(name)) extract(input) else input.bufferedReader().readText()
+@DocumentBackend
+internal object EpubTextExtractor : DocumentFormat {
+    override val mimeTypes = listOf("application/epub+zip")
+    override val richText = true
+    override val chaptered = true
+    override fun matches(name: String) = name.substringAfterLast('.', "").equals("epub", true)
+    override fun source(context: Context, uri: Uri, name: String) = source {
+        context.contentResolver.openInputStream(uri) ?: error("Unable to open $name")
+    }
+    override fun source(file: File, name: String) = source { file.inputStream() }
+    override fun readText(input: InputStream, name: String) = extract(input)
+    override fun preserveOriginalOnBackup() = true
 
     fun source(openStream: () -> InputStream): TextSource = EpubTextSource(openStream)
 
@@ -217,6 +225,7 @@ private class EpubTextSource(
     private val openStream: () -> InputStream,
     private val chapterPath: String? = null
 ) : TextSource {
+    override val chaptered = true
     private val metadata by lazy { readMetadata() }
 
     override fun chapters(): List<TextChapter> {

@@ -67,7 +67,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val DOCUMENT_MIME_TYPES = arrayOf("text/*", "application/json", "application/epub+zip")
+private val DOCUMENT_MIME_TYPES: Array<String>
+    get() = DocumentFormats.mimeTypes()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -213,7 +214,7 @@ private fun DataSyncScreen() {
         chapter: Int = 0,
         chooseChapter: Boolean = false
     ) {
-        if (!EpubTextExtractor.isEpub(label)) {
+        if (!source.chaptered) {
             startTransfer(source, label, offset = offset, historyId = historyId)
             return
         }
@@ -283,12 +284,7 @@ private fun DataSyncScreen() {
                         }
                         val name = historyStore.displayName(uri)
                         val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false)
-                        val content = if (backupOnSend && !EpubTextExtractor.isEpub(name) && !EpubTextExtractor.isPdf(name)) {
-                            context.contentResolver.openInputStream(uri)
-                                ?.use { EpubTextExtractor.readText(it, name) }
-                                ?: error("Unable to open file")
-                        } else null
-                        val entry = historyStore.addUri(uri, name, backupOnSend, content, historyLimit())
+                        val entry = historyStore.addUri(uri, name, backupOnSend, historyLimit())
                         val source = historyStore.source(entry)
                         mainHandler.post {
                             history = historyStore.load()
@@ -541,7 +537,7 @@ private fun HistoryView(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(entry.name, style = MaterialTheme.typography.titleSmall)
                 if (editingId == entry.id) {
-                    if (editChapters.isNotEmpty() && EpubTextExtractor.isEpub(entry.name)) {
+                    if (editChapters.isNotEmpty()) {
                         val selectedChapter = editChapters.firstOrNull { it.index == editChapter }
                         Button(onClick = onChapterToggle, modifier = Modifier.fillMaxWidth()) {
                             Text(

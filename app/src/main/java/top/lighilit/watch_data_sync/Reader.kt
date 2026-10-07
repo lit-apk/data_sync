@@ -21,13 +21,13 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
 
     companion object {
         fun of(source: TextSource, name: String, chunkSize: Int, offset: Int, chapter: Int = 0): Reader {
-            val transferSource = if (EpubTextExtractor.isEpub(name)) {
+            val transferSource = if (DocumentFormats.isChaptered(name)) {
                 source.chapterSource(chapter)
             } else {
                 source
             }
             val transfer = FileTransfer(transferSource, chunkSize, offset)
-            return if (EpubTextExtractor.isEpub(name)) {
+            return if (DocumentFormats.isRichText(name)) {
                 EpubReader(transfer)
             } else {
                 PlainTextReader(transfer)
