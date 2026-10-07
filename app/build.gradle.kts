@@ -8,6 +8,7 @@ plugins {
 val generatedFormatDir = layout.buildDirectory.dir("generated/documentFormats/kotlin").get().asFile
 
 val generateDocumentFormats by tasks.registering {
+    notCompatibleWithConfigurationCache("The source scanner is implemented in the build script")
     inputs.files(fileTree("src/main/java") { include("**/*.kt") })
     outputs.dir(generatedFormatDir)
     doLast {
@@ -48,8 +49,8 @@ android {
         applicationId = "top.lighilit.watch_data_sync"
         minSdk = 24
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.0.0"
+        versionCode = 3
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
