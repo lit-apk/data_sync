@@ -39,27 +39,27 @@ class DataSyncController(
                     currentNodeId = node?.let { readStringProperty(it, "id") }
                     val id = currentNodeId
                     if (id == null) {
-                        postStatus(onStatus, "No paired watch")
+                        postStatus(onStatus, context.getString(R.string.no_paired_watch))
                     } else {
                         authorize(id, onStatus, registerMessages)
                     }
                 }
             }
             addTaskListener(task, "addOnFailureListener") { error ->
-                postStatus(onStatus, "Connect failed: ${errorMessage(error)}")
+                postStatus(onStatus, context.getString(R.string.connect_failed, errorMessage(error)))
             }
         }.onFailure {
             if (it is ClassNotFoundException) {
-                postStatus(onStatus, "Xiaomi wearable SDK missing (add AAR to app/libs)")
+                postStatus(onStatus, context.getString(R.string.sdk_missing))
             } else {
                 reportError("Initializing Xiaomi wearable SDK", it)
-                postStatus(onStatus, "Connect failed: ${errorMessage(it)}")
+                postStatus(onStatus, context.getString(R.string.connect_failed, errorMessage(it)))
             }
         }
     }
 
     fun requestPermission(onStatus: (String) -> Unit, registerMessages: Boolean = true) {
-        val id = currentNodeId ?: return postStatus(onStatus, "No paired watch")
+        val id = currentNodeId ?: return postStatus(onStatus, context.getString(R.string.no_paired_watch))
         requestDeviceManagerPermission(id, onStatus, registerMessages)
     }
 
@@ -73,8 +73,8 @@ class DataSyncController(
 
 
     fun sendJson(payload: JSONObject, onStatus: (String) -> Unit) {
-        val api = messageApi ?: return postStatus(onStatus, "Not connected")
-        val id = currentNodeId ?: return postStatus(onStatus, "No paired watch")
+        val api = messageApi ?: return postStatus(onStatus, context.getString(R.string.not_connected))
+        val id = currentNodeId ?: return postStatus(onStatus, context.getString(R.string.no_paired_watch))
         runCatching {
             val bytes = payload.toString().toByteArray(Charsets.UTF_8)
             val method = api.javaClass.methods.first {
@@ -86,11 +86,11 @@ class DataSyncController(
             addTaskListener(task, "addOnSuccessListener") { postStatus(onStatus, "sent") }
             addTaskListener(task, "addOnFailureListener") { error ->
                 if (error is Throwable) reportError("Sending message to watch", error)
-                postStatus(onStatus, "Send failed: ${errorMessage(error)}")
+                postStatus(onStatus, context.getString(R.string.send_failed, errorMessage(error)))
             }
         }.onFailure {
             reportError("Sending message to watch", it)
-            postStatus(onStatus, "Send failed: ${it.message ?: "SDK error"}")
+            postStatus(onStatus, context.getString(R.string.send_failed, it.message ?: "SDK error"))
         }
     }
 
@@ -114,19 +114,19 @@ class DataSyncController(
     }
 
     private fun sendBytes(bytes: ByteArray, onStatus: (String) -> Unit) {
-        val api = messageApi ?: return postStatus(onStatus, "Not connected")
-        val id = currentNodeId ?: return postStatus(onStatus, "No paired watch")
+        val api = messageApi ?: return postStatus(onStatus, context.getString(R.string.not_connected))
+        val id = currentNodeId ?: return postStatus(onStatus, context.getString(R.string.no_paired_watch))
         runCatching {
             val method = api.javaClass.methods.first { it.name == "sendMessage" && it.parameterTypes.size == 2 }
             val task = requireNotNull(method.invoke(api, id, bytes)) { "sendMessage returned no task" }
             addTaskListener(task, "addOnSuccessListener") { postStatus(onStatus, "sent") }
             addTaskListener(task, "addOnFailureListener") { error ->
                 if (error is Throwable) reportError("Sending message to watch", error)
-                postStatus(onStatus, "Send failed: ${errorMessage(error)}")
+                postStatus(onStatus, context.getString(R.string.send_failed, errorMessage(error)))
             }
         }.onFailure {
             reportError("Sending message to watch", it)
-            postStatus(onStatus, "Send failed: ${it.message ?: "SDK error"}")
+            postStatus(onStatus, context.getString(R.string.send_failed, it.message ?: "SDK error"))
         }
     }
 
@@ -162,17 +162,17 @@ class DataSyncController(
             it.name == "addListener" && it.parameterTypes.size == 2
         }.invoke(api, nodeId, listener)) { "addListener returned no task" }
         addTaskListener(task, "addOnSuccessListener") {
-            postStatus(onStatus, "Connected and authorized")
+            postStatus(onStatus, context.getString(R.string.connected_authorized))
         }
         addTaskListener(task, "addOnFailureListener") { error ->
             reportSdkFailure("Registering watch message listener", error)
             listener = null
-            postStatus(onStatus, "Listener failed: ${errorMessage(error)}")
+            postStatus(onStatus, context.getString(R.string.listener_failed, errorMessage(error)))
         }
     }
 
     private fun authorize(nodeId: String, onStatus: (String) -> Unit, registerMessages: Boolean) {
-        val api = authApi ?: return postStatus(onStatus, "Authorization API unavailable")
+        val api = authApi ?: return postStatus(onStatus, context.getString(R.string.authorization_unavailable))
         reportErrors("Checking Xiaomi wearable permission") {
             val permission = deviceManagerPermission()
             val method = api.javaClass.methods.first {
@@ -190,7 +190,7 @@ class DataSyncController(
             }
             addTaskListener(task, "addOnFailureListener") { error ->
                 reportSdkFailure("Checking Xiaomi wearable permission", error)
-                postStatus(onStatus, "Permission check failed: ${errorMessage(error)}")
+                postStatus(onStatus, context.getString(R.string.permission_check_failed, errorMessage(error)))
             }
         }
     }
@@ -200,8 +200,8 @@ class DataSyncController(
         onStatus: (String) -> Unit,
         registerMessages: Boolean
     ) {
-        val api = authApi ?: return postStatus(onStatus, "Authorization API unavailable")
-        postStatus(onStatus, "Grant watch permission in Xiaomi Health")
+        val api = authApi ?: return postStatus(onStatus, context.getString(R.string.authorization_unavailable))
+        postStatus(onStatus, context.getString(R.string.grant_permission))
         reportErrors("Requesting Xiaomi wearable permission") {
             val permissionClass = Class.forName("com.xiaomi.xms.wearable.auth.Permission")
             val permission = deviceManagerPermission()
@@ -217,12 +217,12 @@ class DataSyncController(
                 if (arrayContainsPermission(granted, "data_manager")) {
                     finishConnection(nodeId, onStatus, registerMessages)
                 } else {
-                    postStatus(onStatus, "Watch permission denied; tap Authorize watch")
+                    postStatus(onStatus, context.getString(R.string.watch_permission_denied))
                 }
             }
             addTaskListener(task, "addOnFailureListener") { error ->
                 reportSdkFailure("Requesting Xiaomi wearable permission", error)
-                postStatus(onStatus, "Permission denied; tap Authorize watch")
+                postStatus(onStatus, context.getString(R.string.permission_denied))
             }
         }
     }
@@ -234,11 +234,11 @@ class DataSyncController(
     ) {
         reportErrors("Registering Xiaomi message listener") {
             if (!registerMessages) {
-                postStatus(onStatus, "Connected and authorized")
+                postStatus(onStatus, context.getString(R.string.connected_authorized))
             } else if (listener == null) {
                 registerMessageListener(nodeId, onStatus)
             } else {
-                postStatus(onStatus, "Connected and authorized")
+                postStatus(onStatus, context.getString(R.string.connected_authorized))
             }
         }
     }
