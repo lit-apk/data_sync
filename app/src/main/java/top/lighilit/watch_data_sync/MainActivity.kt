@@ -169,7 +169,9 @@ private fun DataSyncScreen() {
                     )
                 }
                 page.put(JSONObject().put("type", "text").put("content", part.text))
-                controller.sendJson(JSONObject().put("type", "page").put("items", page)) { result ->
+                // Page ends with an image and more image-only pages follow: let the watch skip them.
+                val skipImages = reader.skipImages && part.text.isEmpty() && reader.nextIsImageOnly()
+                controller.sendJson(JSONObject().put("type", "page").put("items", page).put("skipImages", skipImages)) { result ->
                     handleSentPart(reader, part, result)
                 }
                 return
@@ -416,6 +418,10 @@ private fun DataSyncScreen() {
             ) { result -> if (result != "sent") status = "Protocol negotiation failed: $result" }
         }
         controller.registerActionCallback("next") { sendNextPart() }
+        controller.registerActionCallback("skip_images") {
+            readerState.value?.takeIf { it.skipImages }?.skipImageOnlyParts()
+            sendNextPart()
+        }
         controller.registerActionCallback("previous") { sendPreviousPart() }
         controller.registerActionCallback("reset") {
             readerState.value = null

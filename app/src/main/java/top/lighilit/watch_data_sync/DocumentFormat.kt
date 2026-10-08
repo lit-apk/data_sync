@@ -19,6 +19,13 @@ internal interface DocumentFormat {
     fun readText(input: InputStream, name: String): String
     fun preserveOriginalOnBackup(): Boolean = false
     val fallback: Boolean get() = false
+
+    /**
+     * Whether the watch may offer to skip a run of image-only pages and jump to the next text.
+     * True for text with illustrations (e.g. EPUB); image-only formats (e.g. comics) should
+     * return false, since the images are the content.
+     */
+    val skipImages: Boolean get() = true
 }
 
 internal object DocumentFormats {
@@ -31,4 +38,5 @@ internal object DocumentFormats {
             ?: error("No fallback document format registered")
     fun isRichText(name: String) = forName(name).richText
     fun isChaptered(name: String) = forName(name).chaptered
+    fun skipsImages(name: String) = forName(name).skipImages
 }

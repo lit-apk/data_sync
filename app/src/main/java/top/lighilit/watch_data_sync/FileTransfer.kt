@@ -53,6 +53,20 @@ internal class FileTransfer(
         complete = pendingComplete
     }
 
+    /** True if the part after the pending one is image-only (text exhausted, images remain). */
+    fun nextIsImageOnly(): Boolean =
+        !pendingComplete && pendingEnd / chunkSize < source.imageCount() &&
+            source.readPart(pendingEnd, chunkSize) == null
+
+    /** Marks consecutive image-only parts as sent without sending them. */
+    fun skipImageOnlyParts() {
+        while (true) {
+            val part = pendingPart() ?: return
+            if (part.text.isNotEmpty()) return
+            markSent()
+        }
+    }
+
     fun previousPart(): Part? {
         if (sentStarts.size < 2) return null
         val previousStart = sentStarts[sentStarts.size - 2]

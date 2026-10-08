@@ -21,6 +21,51 @@ class FileTransferTest {
         assertEquals(true, transfer.isComplete)
     }
 
+    private fun imageSource(text: String, images: Int) = object : TextSource {
+        val content = StringTextSource(text)
+        override fun readPart(startOffset: Int, maxChars: Int) = content.readPart(startOffset, maxChars)
+        override fun imageCount() = images
+        override fun imagesAt(offset: Int, pageSize: Int) =
+            listOf(ReadingImage("img-${offset / pageSize}", ByteArray(0), "image/jpeg", ""))
+    }
+
+    @Test
+    fun reportsWhetherNextPartIsImageOnly() {
+        // Pages: "abc"+img0, "d"+img1, img2, img3.
+        val transfer = FileTransfer(imageSource("abcd", 4), chunkSize = 3)
+        transfer.pendingPart()
+        assertEquals(false, transfer.nextIsImageOnly())
+        transfer.markSent()
+        transfer.pendingPart()
+        assertEquals(true, transfer.nextIsImageOnly())
+        transfer.markSent()
+        transfer.pendingPart()
+        assertEquals(true, transfer.nextIsImageOnly())
+        transfer.markSent()
+        transfer.pendingPart()
+        assertEquals(false, transfer.nextIsImageOnly())
+    }
+
+    @Test
+    fun skipImageOnlyPartsDiscardsRemainingImages() {
+        val transfer = FileTransfer(imageSource("abcd", 4), chunkSize = 3)
+        repeat(2) { transfer.pendingPart(); transfer.markSent() }
+
+        transfer.skipImageOnlyParts()
+
+        assertNull(transfer.pendingPart())
+        assertEquals(true, transfer.isComplete)
+    }
+
+    @Test
+    fun skipImageOnlyPartsKeepsNextTextPart() {
+        val transfer = FileTransfer(imageSource("abcdef", 4), chunkSize = 3)
+
+        transfer.skipImageOnlyParts()
+
+        assertEquals(FileTransfer.Part("abc", 0, 3), transfer.pendingPart())
+    }
+
     @Test
     fun continuesWithImageOnlyPagesAfterTextEnds() {
         val source = object : TextSource {

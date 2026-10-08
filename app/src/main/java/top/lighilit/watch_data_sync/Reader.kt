@@ -3,6 +3,10 @@ package top.lighilit.watch_data_sync
 internal class PreviousPageNotSupportedException(message: String) : RuntimeException(message)
 
 internal abstract class Reader(protected val transfer: FileTransfer) {
+    /** From the document backend; see [DocumentFormat.skipImages]. */
+    var skipImages: Boolean = true
+        private set
+
     val currentOffset: Int
         get() = transfer.currentOffset
 
@@ -17,6 +21,10 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
 
     fun markSent() = transfer.markSent()
 
+    fun nextIsImageOnly(): Boolean = transfer.nextIsImageOnly()
+
+    fun skipImageOnlyParts() = transfer.skipImageOnlyParts()
+
     fun markPreviousSent() = transfer.markPreviousSent()
 
     abstract fun previousPart(): FileTransfer.Part?
@@ -29,11 +37,13 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
                 source
             }
             val transfer = FileTransfer(transferSource, chunkSize, offset)
-            return if (DocumentFormats.isRichText(name)) {
+            val reader = if (DocumentFormats.isRichText(name)) {
                 EpubReader(transfer)
             } else {
                 PlainTextReader(transfer)
             }
+            reader.skipImages = DocumentFormats.skipsImages(name)
+            return reader
         }
     }
 }
