@@ -34,7 +34,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import top.lighilit.watch_data_sync.ui.theme.Watch_data_syncTheme
@@ -60,6 +62,7 @@ class SettingsActivity : ComponentActivity() {
 @Composable
 private fun SettingsScreen(onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val resources = LocalResources.current
     val preferences = remember { context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     val historyStore = remember { ReadingHistoryStore(context.applicationContext) }
     var status by remember { mutableStateOf("") }
@@ -85,11 +88,11 @@ private fun SettingsScreen(onBack: () -> Unit) {
         val chunkSize = chunkSizeText.toIntOrNull()
         val limit = historyLimitText.toIntOrNull()
         if (chunkSize == null || chunkSize !in 1..10_000) {
-            status = "Message size must be 1 to 10000"
+            status = resources.getString(R.string.message_size_range)
             return false
         }
         if (limit == null || limit !in 1..100) {
-            status = "History count must be 1 to 100"
+            status = resources.getString(R.string.history_count_range)
             return false
         }
         preferences.edit()
@@ -101,7 +104,7 @@ private fun SettingsScreen(onBack: () -> Unit) {
         savedChunkSize = chunkSizeText
         savedHistoryLimit = historyLimitText
         savedBackupOnSend = backupOnSend
-        status = "Settings saved"
+        status = resources.getString(R.string.settings_saved)
         return true
     }
 
@@ -119,10 +122,10 @@ private fun SettingsScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
                     IconButton(onClick = { requestLeave() }) {
-                        Icon(painterResource(R.drawable.ic_back), "Back")
+                        Icon(painterResource(R.drawable.ic_back), stringResource(R.string.back))
                     }
                 }
             )
@@ -139,36 +142,36 @@ private fun SettingsScreen(onBack: () -> Unit) {
                     controller.requestPermission({ status = it }, registerMessages = false)
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Authorize watch") }
-            SettingsNumberField("Maximum characters per message", chunkSizeText) {
+            ) { Text(stringResource(R.string.authorize_watch)) }
+            SettingsNumberField(stringResource(R.string.max_characters), chunkSizeText) {
                 if (it.all(Char::isDigit)) chunkSizeText = it
             }
-            SettingsNumberField("Reading history entries", historyLimitText) {
+            SettingsNumberField(stringResource(R.string.history_entries), historyLimitText) {
                 if (it.all(Char::isDigit)) historyLimitText = it
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Back up file when sending")
+                Text(stringResource(R.string.backup_when_sending))
                 Checkbox(backupOnSend, { backupOnSend = it })
             }
             Button(
                 onClick = { saveSettings() },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Save settings") }
+            ) { Text(stringResource(R.string.save_settings)) }
         }
     }
 
     if (showLeaveDialog) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
-            title = { Text("Save changes?") },
-            text = { Text("Settings have been modified.") },
+            title = { Text(stringResource(R.string.save_changes)) },
+            text = { Text(stringResource(R.string.settings_modified)) },
             confirmButton = {
                 Button(onClick = {
                     if (saveSettings()) onBack()
-                }) { Text("Save") }
+                }) { Text(stringResource(R.string.save)) }
             },
             dismissButton = {
-                Button(onClick = onBack) { Text("Discard") }
+                Button(onClick = onBack) { Text(stringResource(R.string.discard)) }
             }
         )
     }

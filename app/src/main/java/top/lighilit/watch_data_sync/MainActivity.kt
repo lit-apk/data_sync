@@ -51,7 +51,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -74,6 +76,7 @@ private val DOCUMENT_MIME_TYPES: Array<String>
 @Composable
 private fun DataSyncScreen() {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val preferences = remember { context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     val historyStore = remember { ReadingHistoryStore(context.applicationContext) }
     val readerState = remember { mutableStateOf<Reader?>(null) }
@@ -82,7 +85,7 @@ private fun DataSyncScreen() {
     val remoteHistoryRequest = remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var input by rememberSaveable { mutableStateOf("") }
-    var status by remember { mutableStateOf("Connecting...") }
+    var status by remember { mutableStateOf(resources.getString(R.string.connecting)) }
     var selectedLabel by remember { mutableStateOf<String?>(null) }
     var history by remember { mutableStateOf(historyStore.load()) }
     var historyEditMode by remember { mutableStateOf(false) }
@@ -116,7 +119,7 @@ private fun DataSyncScreen() {
         controller.sendJson(
             JSONObject().put("type", "history_list").put("items", items)
         ) { result ->
-            if (result != "sent") status = "History send failed: $result"
+            if (result != "sent") status = resources.getString(R.string.history_send_failed, result)
         }
     }
 
@@ -124,17 +127,17 @@ private fun DataSyncScreen() {
         controller.sendJson(
             JSONObject().put("type", "history_error").put("message", message)
         ) { result ->
-            status = if (result == "sent") message else "History error send failed: $result"
+            status = if (result == "sent") message else resources.getString(R.string.history_error_send_failed, result)
         }
     }
 
     fun sendNextPart() {
         val reader = readerState.value ?: run {
-            status = "No active transfer"
+            status = resources.getString(R.string.no_active_transfer)
             return
         }
         val part = reader.nextPart() ?: run {
-            status = "No unsent content"
+            status = resources.getString(R.string.no_unsent_content)
             return
         }
         controller.sendText(part.text) { result ->
@@ -145,15 +148,15 @@ private fun DataSyncScreen() {
                     history = historyStore.load()
                 }
                 status = if (reader.isComplete) {
-                    "Sent through character ${reader.currentOffset}; complete"
+                    resources.getString(R.string.sent_complete, reader.currentOffset)
                 } else {
-                    "Sent through character ${reader.currentOffset}; tap Next on watch"
+                    resources.getString(R.string.sent_next, reader.currentOffset)
                 }
             } else {
                 status = result
                 if (remoteHistoryRequest.value) {
                     remoteHistoryRequest.value = false
-                    sendHistoryError("Unable to send reading content: $result")
+                    sendHistoryError(resources.getString(R.string.send_content_failed, result))
                 }
             }
         }
@@ -161,13 +164,13 @@ private fun DataSyncScreen() {
 
     fun sendPreviousPart() {
         val reader = readerState.value ?: run {
-            status = "No active transfer"
+            status = resources.getString(R.string.no_active_transfer)
             return
         }
         runCatching { reader.previousPart() }
             .onSuccess { part ->
                 if (part == null) {
-                    status = "Already at the first page"
+                    status = resources.getString(R.string.first_page)
                     return@onSuccess
                 }
                 controller.sendText(part.text) { result ->
@@ -177,20 +180,20 @@ private fun DataSyncScreen() {
                             historyStore.updatePosition(it, part.startOffset, activeChapter.value, historyLimit())
                             history = historyStore.load()
                         }
-                        status = "Sent from character ${part.startOffset}"
+                        status = resources.getString(R.string.sent_from, part.startOffset)
                     } else {
                         status = result
                     }
                 }
             }
             .onFailure { error ->
-                val message = error.message ?: "Previous page is not supported"
+                val message = error.message ?: resources.getString(R.string.previous_unsupported)
                 status = message
                 if (error is PreviousPageNotSupportedException) {
                     controller.sendJson(
                         JSONObject().put("type", "not_supported").put("message", message)
                     ) { result ->
-                        if (result != "sent") status = "Notify watch failed: $result"
+                        if (result != "sent") status = resources.getString(R.string.notify_failed, result)
                     }
                 }
             }
@@ -202,7 +205,7 @@ private fun DataSyncScreen() {
         activeHistoryId.value = historyId
         activeChapter.value = chapter
         selectedLabel = label
-        status = "Sending from character ${if (length == null) offset else offset.coerceIn(0, length)}"
+        status = resources.getString(R.string.sending_from, if (length == null) offset else offset.coerceIn(0, length))
         sendNextPart()
     }
 
@@ -218,7 +221,7 @@ private fun DataSyncScreen() {
             startTransfer(source, label, offset = offset, historyId = historyId)
             return
         }
-        status = "Preparing EPUB..."
+        status = resources.getString(R.string.preparing_epub)
         ioExecutor.execute {
             runCatching {
                 source.chapters()
@@ -230,7 +233,7 @@ private fun DataSyncScreen() {
                             chapterDialogAction = { selected ->
                                 chapterDialog = null
                                 chapterDialogAction = null
-                                status = "Preparing chapter..."
+                                status = resources.getString(R.string.preparing_chapter)
                                 startTransfer(source, label, offset = 0, historyId = historyId, chapter = selected.index)
                             }
                         } else {
@@ -239,7 +242,7 @@ private fun DataSyncScreen() {
                     }
                 }
                 .onFailure { error ->
-                    mainHandler.post { status = "Open failed: ${error.message}" }
+                    mainHandler.post { status = resources.getString(R.string.open_failed, error.message) }
                 }
         }
     }
@@ -250,7 +253,7 @@ private fun DataSyncScreen() {
                 chapterDialog = null
                 chapterDialogAction = null
             },
-            title = { Text("Select chapter") },
+            title = { Text(stringResource(R.string.select_chapter)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     chapters.forEach { item ->
@@ -268,7 +271,7 @@ private fun DataSyncScreen() {
     fun resume(entry: ReadingHistory) {
         runCatching { historyStore.source(entry) }
             .onSuccess { openSource(it, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter) }
-            .onFailure { status = "Open failed: ${it.message}" }
+            .onFailure { status = resources.getString(R.string.open_failed, it.message) }
     }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -291,7 +294,7 @@ private fun DataSyncScreen() {
                             openSource(source, entry.name, offset = entry.offset, historyId = entry.id, chooseChapter = true)
                         }
                     }.onFailure { error ->
-                        mainHandler.post { status = "File read failed: ${error.message}" }
+                        mainHandler.post { status = resources.getString(R.string.file_read_failed, error.message) }
                     }
                 }
             }
@@ -318,24 +321,24 @@ private fun DataSyncScreen() {
             activeHistoryId.value = null
             selectedLabel = null
             remoteHistoryRequest.value = false
-            status = "Transfer reset by watch"
+            status = resources.getString(R.string.transfer_reset)
         }
         controller.registerActionCallback("received") {
-            status = "Watch displayed the latest message"
+            status = resources.getString(R.string.watch_displayed)
         }
         controller.registerActionCallback("history_list") { sendHistory() }
         controller.registerActionCallback("history_open") { request ->
             val id = request.optString("id")
             val entry = historyStore.load().firstOrNull { it.id == id }
             if (entry == null) {
-                sendHistoryError("History entry no longer exists")
+                sendHistoryError(resources.getString(R.string.history_missing))
             } else {
                 runCatching { historyStore.source(entry) }
                     .onSuccess {
                         remoteHistoryRequest.value = true
                         openSource(it, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter)
                     }
-                    .onFailure { sendHistoryError("Unable to open ${entry.name}: ${it.message}") }
+                    .onFailure { sendHistoryError(resources.getString(R.string.history_open_failed, entry.name, it.message)) }
             }
         }
     }
@@ -351,23 +354,23 @@ private fun DataSyncScreen() {
     errorTrace?.let { trace ->
         AlertDialog(
             onDismissRequest = { errorTrace = null },
-            title = { Text("Data Sync error") },
+            title = { Text(stringResource(R.string.data_sync_error)) },
             text = { Text(trace, Modifier.verticalScroll(rememberScrollState())) },
             confirmButton = {
                 Button(onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("Data Sync traceback", trace))
-                    Toast.makeText(context, "Traceback copied", Toast.LENGTH_SHORT).show()
-                }) { Text("Copy") }
+                    Toast.makeText(context, resources.getString(R.string.traceback_copied), Toast.LENGTH_SHORT).show()
+                }) { Text(stringResource(R.string.copy)) }
             },
-            dismissButton = { Button(onClick = { errorTrace = null }) { Text("Dismiss") } }
+            dismissButton = { Button(onClick = { errorTrace = null }) { Text(stringResource(R.string.dismiss)) } }
         )
     }
 
     deleteEntry?.let { entry ->
         AlertDialog(
             onDismissRequest = { deleteEntry = null },
-            title = { Text("Delete history entry?") },
+            title = { Text(stringResource(R.string.delete_history)) },
             text = { Text(entry.name) },
             confirmButton = {
                 Button(onClick = {
@@ -377,22 +380,22 @@ private fun DataSyncScreen() {
                     editingId = null
                     historyEditMode = false
                     deleteEntry = null
-                    status = "History deleted"
-                }) { Text("Delete") }
+                    status = resources.getString(R.string.history_deleted)
+                }) { Text(stringResource(R.string.delete)) }
             },
-            dismissButton = { Button(onClick = { deleteEntry = null }) { Text("Cancel") } }
+            dismissButton = { Button(onClick = { deleteEntry = null }) { Text(stringResource(R.string.cancel)) } }
         )
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Data Sync") },
+                title = { Text(stringResource(R.string.app_name)) },
                 actions = {
                     IconButton(onClick = {
                         context.startActivity(Intent(context, SettingsActivity::class.java))
                     }) {
-                        Icon(painterResource(R.drawable.ic_settings), "Settings")
+                        Icon(painterResource(R.drawable.ic_settings), stringResource(R.string.settings))
                     }
                 }
             )
@@ -400,7 +403,7 @@ private fun DataSyncScreen() {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             PrimaryTabRow(selectedTabIndex = selectedTab) {
-                    listOf("Text", "File").forEachIndexed { index, label ->
+                    listOf(stringResource(R.string.tab_text), stringResource(R.string.tab_file)).forEachIndexed { index, label ->
                         Tab(selectedTab == index, { selectedTab = index }, text = { Text(label) })
                     }
                 }
@@ -414,20 +417,20 @@ private fun DataSyncScreen() {
                             input,
                             { input = it },
                             Modifier.fillMaxWidth().height(260.dp),
-                            label = { Text("Text to send") },
+                            label = { Text(stringResource(R.string.text_to_send)) },
                             minLines = 7
                         )
                         Button(
-                            onClick = { startTransfer(StringTextSource(input), "Text input", input.length) },
+                            onClick = { startTransfer(StringTextSource(input), resources.getString(R.string.text_input), input.length) },
                             enabled = input.isNotEmpty(),
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Submit") }
+                        ) { Text(stringResource(R.string.submit)) }
                     } else {
                         Button(
                             onClick = { filePicker.launch(DOCUMENT_MIME_TYPES) },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text("Upload file") }
-                        selectedLabel?.let { Text("Active: $it") }
+                        ) { Text(stringResource(R.string.upload_file)) }
+                        selectedLabel?.let { Text(stringResource(R.string.active_document, it)) }
                         readerState.value?.let { Text("Character offset: ${it.currentOffset}") }
                         HistoryView(
                             history = history,
