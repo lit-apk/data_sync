@@ -22,6 +22,28 @@ class FileTransferTest {
     }
 
     @Test
+    fun continuesWithImageOnlyPagesAfterTextEnds() {
+        val source = object : TextSource {
+            val text = StringTextSource("abcd")
+            override fun readPart(startOffset: Int, maxChars: Int) = text.readPart(startOffset, maxChars)
+            override fun imageCount() = 4
+            override fun imagesAt(offset: Int, pageSize: Int) =
+                listOf(ReadingImage("img-${offset / pageSize}", ByteArray(0), "image/jpeg", ""))
+        }
+        val transfer = FileTransfer(source, chunkSize = 3)
+        val imageIds = mutableListOf<String>()
+
+        while (true) {
+            val part = transfer.pendingPart() ?: break
+            imageIds += transfer.imagesAt(part.startOffset).single().id
+            transfer.markSent()
+        }
+
+        assertEquals(listOf("img-0", "img-1", "img-2", "img-3"), imageIds)
+        assertEquals(true, transfer.isComplete)
+    }
+
+    @Test
     fun emptyFileStillHasOnePart() {
         val transfer = FileTransfer("", chunkSize = 3)
 

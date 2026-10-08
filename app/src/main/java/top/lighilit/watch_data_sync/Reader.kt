@@ -13,6 +13,8 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
 
     fun nextPart(): FileTransfer.Part? = transfer.pendingPart()
 
+    fun imagesAt(offset: Int): List<ReadingImage> = transfer.imagesAt(offset)
+
     fun markSent() = transfer.markSent()
 
     fun markPreviousSent() = transfer.markPreviousSent()

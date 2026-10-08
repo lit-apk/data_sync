@@ -46,15 +46,7 @@ internal class ReadingHistoryStore(private val context: Context) {
     fun addUri(uri: Uri, name: String, backup: Boolean, limit: Int): ReadingHistory {
         val entry = if (backup) {
             val file = uniqueBackupFile(name)
-            if (DocumentFormats.forName(name).preserveOriginalOnBackup()) {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    file.outputStream().use { output -> input.copyTo(output) }
-                } ?: error("Unable to open $name")
-            } else {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    file.writeText(DocumentFormats.forName(name).readText(input, name))
-                } ?: error("Unable to open $name")
-            }
+            DocumentFormats.forName(name).copyToBackup(context, uri, file, name)
             ReadingHistory(UUID.randomUUID().toString(), file.name, file.absolutePath, true, 0)
         } else {
             ReadingHistory(UUID.randomUUID().toString(), name, uri.toString(), false, 0)
@@ -64,13 +56,13 @@ internal class ReadingHistoryStore(private val context: Context) {
     }
 
     fun source(entry: ReadingHistory): TextSource = if (entry.backedUp) {
-        DocumentFormats.forName(entry.name).source(File(entry.source), entry.name)
+        DocumentFormats.forName(entry.name).source(File(entry.source), entry.name, context)
     } else {
         source(Uri.parse(entry.source), entry.name)
     }
 
     fun source(uri: Uri, name: String): TextSource {
-        return DocumentFormats.forName(name).source(context, uri, name)
+        return DocumentFormats.forName(name).source(context, uri, name, documentCache(context))
     }
 
     fun displayName(uri: Uri): String {
@@ -127,13 +119,7 @@ internal class ReadingHistoryStore(private val context: Context) {
             }
             backup -> {
                 val target = uniqueBackupFile(newName)
-                context.contentResolver.openInputStream(Uri.parse(newSource))?.use { input ->
-                    if (DocumentFormats.forName(newName).preserveOriginalOnBackup()) {
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    } else {
-                        target.writeText(input.bufferedReader().use { it.readText() })
-                    }
-                } ?: error("Unable to open $newName")
+                DocumentFormats.forName(newName).copyToBackup(context, Uri.parse(newSource), target, newName)
                 entry.copy(name = target.name, source = target.absolutePath, backedUp = true)
             }
             else -> {

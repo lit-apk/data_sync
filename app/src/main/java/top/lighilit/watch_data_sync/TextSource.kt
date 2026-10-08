@@ -21,6 +21,11 @@ internal interface TextSource {
     fun chapterAt(offset: Int): Int = chapters().lastOrNull { it.startOffset <= offset }?.index ?: 0
 
     fun chapterSource(index: Int): TextSource = this
+
+    fun imagesAt(offset: Int, pageSize: Int): List<ReadingImage> = emptyList()
+
+    /** Number of image pages; pages continue past the end of the text until all images are sent. */
+    fun imageCount(): Int = 0
 }
 
 internal class PlainTextSource(private val openStream: () -> InputStream) : TextSource {

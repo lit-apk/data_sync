@@ -2,7 +2,10 @@ package top.lighilit.watch_data_sync
 
 import android.content.Context
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.InputStreamReader
@@ -17,12 +20,29 @@ internal object EpubTextExtractor : DocumentFormat {
     override val richText = true
     override val chaptered = true
     override fun matches(name: String) = name.substringAfterLast('.', "").equals("epub", true)
-    override fun source(context: Context, uri: Uri, name: String) = source {
-        context.contentResolver.openInputStream(uri) ?: error("Unable to open $name")
+    override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?): TextSource {
+        val archive = EpubArchive(
+            { context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") },
+            cache = cache
+        )
+        return EpubTextSource({ context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") }, archive, null, imageLimitBytes(context), imageReducePercent(context))
     }
-    override fun source(file: File, name: String) = source { file.inputStream() }
+    override fun source(file: File, name: String, context: Context?): TextSource = context?.let {
+        EpubTextSource(
+            { file.inputStream() },
+            EpubArchive({ file.inputStream() }, file),
+            null,
+            imageLimitBytes(it),
+            imageReducePercent(it)
+        )
+    } ?: error("Context required for EPUB source")
     override fun readText(input: InputStream, name: String) = extract(input)
     override fun preserveOriginalOnBackup() = true
+    override fun copyToBackup(context: Context, uri: Uri, target: File, name: String) {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        } ?: error("Unable to open $name")
+    }
 
     fun source(openStream: () -> InputStream): TextSource = EpubTextSource(openStream)
 
@@ -223,13 +243,89 @@ internal object EpubTextExtractor : DocumentFormat {
 
 private class EpubTextSource(
     private val openStream: () -> InputStream,
-    private val chapterPath: String? = null
+    private val archive: EpubArchive? = null,
+    private val chapterPath: String? = null,
+    private val maxImageBytes: Int = 2048 * 1024,
+    private val reducePercent: Int = DEFAULT_IMAGE_REDUCE_PERCENT
 ) : TextSource {
     override val chaptered = true
     private val metadata by lazy { readMetadata() }
+    private val entryCache = object : LinkedHashMap<String, ByteArray>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>): Boolean =
+            size > 8
+    }
+
+    override fun imageCount(): Int {
+        val path = chapterPath ?: return 0
+        val html = archive?.entryText(path) ?: readEntry(path) ?: return 0
+        return Regex("(?is)<img\\b[^>]*>").findAll(html).count()
+    }
+
+    override fun imagesAt(offset: Int, pageSize: Int): List<ReadingImage> {
+        val path = chapterPath ?: return emptyList()
+        val imageIndex = offset / pageSize
+        val html = archive?.entryText(path) ?: readEntry(path) ?: return emptyList()
+        val base = path.substringBeforeLast('/', "")
+        return Regex("(?is)<img\\b[^>]*>").findAll(html).mapIndexedNotNull { index, match ->
+            if (index != imageIndex) return@mapIndexedNotNull null
+            val source = Regex("(?i)\\bsrc=[\\\"']([^\\\"']+)").find(match.value)?.groupValues?.get(1)
+                ?: return@mapIndexedNotNull null
+            val bytes = archive?.entryBytes(EpubTextExtractor.resolveForSource(base, source))
+                ?: readEntryBytes(EpubTextExtractor.resolveForSource(base, source)) ?: return@mapIndexedNotNull null
+            val encoded = downsizeImage(bytes, maxImageBytes) ?: return@mapIndexedNotNull null
+            val alt = Regex("(?i)\\balt=[\\\"']([^\\\"']*)").find(match.value)?.groupValues?.get(1).orEmpty()
+            ReadingImage("chapter-${path.hashCode()}-$index", encoded, "image/jpeg", alt)
+        }.toList()
+    }
+
+    private fun readEntryBytes(path: String): ByteArray? {
+        val target = EpubTextExtractor.normalizeForSource(path)
+        entryCache[target]?.let { return it }
+        openStream().use { input ->
+            ZipInputStream(input).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (EpubTextExtractor.normalizeForSource(entry.name) == target) {
+                        val bytes = zip.readBytes()
+                        entryCache[target] = bytes
+                        return bytes
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+        }
+        return null
+    }
+
+    private fun downsizeImage(bytes: ByteArray, maxBytes: Int): ByteArray? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        val sample = maxOf(bounds.outWidth, bounds.outHeight)
+            .let { size -> generateSequence(1) { it * 2 }.takeWhile { it * 2 <= size / 512 }.lastOrNull() ?: 1 }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+        var current = bitmap
+        try {
+            repeat(6) { pass ->
+                if (pass > 0) {
+                    val scale = reducePercent / 100f
+                    val next = Bitmap.createScaledBitmap(current, (current.width * scale).toInt().coerceAtLeast(1), (current.height * scale).toInt().coerceAtLeast(1), true)
+                    if (next !== current) current.recycle()
+                    current = next
+                }
+                val output = ByteArrayOutputStream()
+                current.compress(Bitmap.CompressFormat.JPEG, 82 - pass * 8, output)
+                if (output.size() <= maxBytes) return output.toByteArray()
+            }
+            return null
+        } finally {
+            if (!current.isRecycled) current.recycle()
+        }
+    }
 
     override fun chapters(): List<TextChapter> {
-        val titles = metadata.navigationTitles(openStream)
+        val titles = metadata.navigationTitles(openStream, archive)
         return metadata.paths.mapIndexed { index, path ->
             TextChapter(
                 index = index,
@@ -244,7 +340,7 @@ private class EpubTextSource(
             .ifBlank { "Chapter ${index + 1}" }
 
     override fun chapterSource(index: Int): TextSource =
-        EpubTextSource(openStream, metadata.paths.getOrNull(index))
+        EpubTextSource(openStream, archive, metadata.paths.getOrNull(index), maxImageBytes, reducePercent)
 
 
     override fun readPart(startOffset: Int, maxChars: Int): SourcePart? {
@@ -271,10 +367,17 @@ private class EpubTextSource(
     }
 
     private fun readMetadata(): EpubMetadata {
-        val container = readEntry("META-INF/container.xml")
-            ?: error("Not a valid EPUB (missing META-INF/container.xml)")
-        val opfPath = EpubTextExtractor.parseContainerRootfileForSource(container)
-        val opf = readEntry(opfPath) ?: error("Missing package document: $opfPath")
+        val container = archive?.entryText("META-INF/container.xml") ?: readEntry("META-INF/container.xml")
+        val packageDocument = if (container != null) {
+	   // epub version 3
+            val path = EpubTextExtractor.parseContainerRootfileForSource(container)
+            path to (archive?.entryText(path) ?: readEntry(path))
+        } else {
+	    // for epub version 2
+            archive?.firstEntryEnding(".opf") ?: readEntryEnding(".opf")
+        }
+        val opfPath = packageDocument?.first ?: error("Missing EPUB package document")
+        val opf = packageDocument.second ?: error("Unable to read EPUB package document")
         return EpubMetadata(
             opfPath.substringBeforeLast('/', ""),
             EpubTextExtractor.parseManifestForSource(opf),
@@ -290,6 +393,19 @@ private class EpubTextSource(
                 id?.let { manifest[it] }
             }?.let { EpubTextExtractor.resolveForSource(opfPath.substringBeforeLast('/', ""), it) }
         )
+    }
+
+    private fun readEntryEnding(suffix: String): Pair<String, String>? {
+        openStream().use { input ->
+            ZipInputStream(input).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (entry.name.endsWith(suffix, true)) return entry.name to zip.readBytes().toString(Charsets.UTF_8)
+                    entry = zip.nextEntry
+                }
+            }
+        }
+        return null
     }
 
     private fun readEntry(path: String): String? {
@@ -354,9 +470,9 @@ private class EpubTextSource(
             return EpubTextReader(openStream, paths)
         }
 
-        fun navigationTitles(openStream: () -> InputStream): Map<String, String> {
+        fun navigationTitles(openStream: () -> InputStream, archive: EpubArchive?): Map<String, String> {
             val path = navigationPath ?: return emptyMap()
-            val html = EpubTextSource(openStream).readEntryForMetadata(path) ?: return emptyMap()
+            val html = archive?.entryText(path) ?: EpubTextSource(openStream).readEntryForMetadata(path) ?: return emptyMap()
             val result = mutableMapOf<String, String>()
             val anchorPattern = Regex(
                 "(?is)<a\\b[^>]*href=[\\\"']([^\\\"'#]+)(?:#[^\\\"']*)?[\\\"'][^>]*>(.*?)</a>"
@@ -369,7 +485,7 @@ private class EpubTextSource(
                 if (title.isNotEmpty()) result[href] = title
             }
             if (result.isNotEmpty()) return result
-            val ncx = ncxPath?.let { EpubTextSource(openStream).readEntryForMetadata(it) } ?: return result
+            val ncx = ncxPath?.let { archive?.entryText(it) ?: EpubTextSource(openStream).readEntryForMetadata(it) } ?: return result
             val root = EpubTextExtractor.parseXmlForSource(ncx)
             val points = root.getElementsByTagName("navPoint")
             for (index in 0 until points.length) {

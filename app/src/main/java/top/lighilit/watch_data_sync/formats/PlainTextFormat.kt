@@ -12,9 +12,14 @@ internal class PlainTextFormat : DocumentFormat {
     override val chaptered = false
     override fun matches(name: String) = true
     override val fallback = true
-    override fun source(context: Context, uri: Uri, name: String) = PlainTextSource {
+    override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?) = PlainTextSource {
         context.contentResolver.openInputStream(uri) ?: error("Unable to open $name")
     }
-    override fun source(file: File, name: String) = PlainTextSource { file.inputStream() }
+    override fun source(file: File, name: String, context: Context?) = PlainTextSource { file.inputStream() }
     override fun readText(input: InputStream, name: String) = input.bufferedReader().readText()
+    override fun copyToBackup(context: Context, uri: Uri, target: File, name: String) {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            target.writeText(input.bufferedReader().use { it.readText() })
+        } ?: error("Unable to open $name")
+    }
 }

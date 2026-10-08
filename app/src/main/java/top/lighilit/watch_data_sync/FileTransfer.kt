@@ -25,13 +25,25 @@ internal class FileTransfer(
 
     fun chapterAt(offset: Int): Int = source.chapterAt(offset)
 
+    fun imagesAt(offset: Int): List<ReadingImage> = source.imagesAt(offset, chunkSize)
+
     fun pendingPart(): Part? {
+        val imagePages = source.imageCount()
+        val page = offset / chunkSize
         val sourcePart = source.readPart(offset, chunkSize) ?: run {
-            complete = true
-            return null
+            // Text is exhausted; keep sending image-only pages until every image is sent.
+            if (page >= imagePages) {
+                complete = true
+                return null
+            }
+            pendingEnd = (page + 1) * chunkSize
+            pendingComplete = page + 1 >= imagePages
+            return Part("", offset, pendingEnd)
         }
-        pendingEnd = sourcePart.endOffset
-        pendingComplete = sourcePart.endOfSource
+        val imagesRemain = page + 1 < imagePages
+        // Align to the next page boundary so the following image-only page gets the next image.
+        pendingEnd = if (sourcePart.endOfSource && imagesRemain) (page + 1) * chunkSize else sourcePart.endOffset
+        pendingComplete = sourcePart.endOfSource && !imagesRemain
         return Part(sourcePart.text, offset, sourcePart.endOffset)
     }
 

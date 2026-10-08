@@ -6,6 +6,7 @@ import android.os.Looper
 import org.json.JSONObject
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
+import java.lang.reflect.UndeclaredThrowableException
 
 /** Xiaomi wearable bridge wrapper. The vendor AAR is loaded from app/libs at runtime. */
 class DataSyncController(
@@ -38,27 +39,27 @@ class DataSyncController(
                     currentNodeId = node?.let { readStringProperty(it, "id") }
                     val id = currentNodeId
                     if (id == null) {
-                        postStatus(onStatus, context.getString(R.string.no_paired_watch))
+                        postStatus(onStatus, "No paired watch")
                     } else {
                         authorize(id, onStatus, registerMessages)
                     }
                 }
             }
             addTaskListener(task, "addOnFailureListener") { error ->
-                postStatus(onStatus, context.getString(R.string.connect_failed, errorMessage(error)))
+                postStatus(onStatus, "Connect failed: ${errorMessage(error)}")
             }
         }.onFailure {
             if (it is ClassNotFoundException) {
-                postStatus(onStatus, context.getString(R.string.sdk_missing))
+                postStatus(onStatus, "Xiaomi wearable SDK missing (add AAR to app/libs)")
             } else {
                 reportError("Initializing Xiaomi wearable SDK", it)
-                postStatus(onStatus, context.getString(R.string.connect_failed, errorMessage(it)))
+                postStatus(onStatus, "Connect failed: ${errorMessage(it)}")
             }
         }
     }
 
     fun requestPermission(onStatus: (String) -> Unit, registerMessages: Boolean = true) {
-        val id = currentNodeId ?: return postStatus(onStatus, context.getString(R.string.no_paired_watch))
+        val id = currentNodeId ?: return postStatus(onStatus, "No paired watch")
         requestDeviceManagerPermission(id, onStatus, registerMessages)
     }
 
@@ -66,9 +67,14 @@ class DataSyncController(
         sendJson(JSONObject().put("type", "text").put("content", text), onStatus)
     }
 
+    fun sendProtocolVersion(onStatus: (String) -> Unit) {
+        sendJson(JSONObject().put("type", "protocol").put("version", PROTOCOL_VERSION), onStatus)
+    }
+
+
     fun sendJson(payload: JSONObject, onStatus: (String) -> Unit) {
-        val api = messageApi ?: return postStatus(onStatus, context.getString(R.string.not_connected))
-        val id = currentNodeId ?: return postStatus(onStatus, context.getString(R.string.no_paired_watch))
+        val api = messageApi ?: return postStatus(onStatus, "Not connected")
+        val id = currentNodeId ?: return postStatus(onStatus, "No paired watch")
         runCatching {
             val bytes = payload.toString().toByteArray(Charsets.UTF_8)
             val method = api.javaClass.methods.first {
@@ -79,11 +85,48 @@ class DataSyncController(
             }
             addTaskListener(task, "addOnSuccessListener") { postStatus(onStatus, "sent") }
             addTaskListener(task, "addOnFailureListener") { error ->
-                postStatus(onStatus, context.getString(R.string.send_failed, errorMessage(error)))
+                if (error is Throwable) reportError("Sending message to watch", error)
+                postStatus(onStatus, "Send failed: ${errorMessage(error)}")
             }
         }.onFailure {
             reportError("Sending message to watch", it)
-            postStatus(onStatus, context.getString(R.string.send_failed, it.message ?: "SDK error"))
+            postStatus(onStatus, "Send failed: ${it.message ?: "SDK error"}")
+        }
+    }
+
+    /**
+     * The Xiaomi bridge delivers messages to the watch as strings, so raw bytes
+     * are corrupted. Image bytes are sent as a JSON number array: the watch
+     * decodes it with native JSON.parse + Uint8Array.set, with no per-byte JS.
+     */
+    fun sendImageChunk(id: Int, offset: Int, total: Int, payload: ByteArray, onStatus: (String) -> Unit) {
+        val data = StringBuilder(payload.size * 4 + 64)
+        data.append("{\"type\":\"image_chunk\",\"id\":").append(id)
+            .append(",\"offset\":").append(offset)
+            .append(",\"total\":").append(total)
+            .append(",\"data\":[")
+        payload.forEachIndexed { index, byte ->
+            if (index > 0) data.append(',')
+            data.append(byte.toInt() and 0xFF)
+        }
+        data.append("]}")
+        sendBytes(data.toString().toByteArray(Charsets.UTF_8), onStatus)
+    }
+
+    private fun sendBytes(bytes: ByteArray, onStatus: (String) -> Unit) {
+        val api = messageApi ?: return postStatus(onStatus, "Not connected")
+        val id = currentNodeId ?: return postStatus(onStatus, "No paired watch")
+        runCatching {
+            val method = api.javaClass.methods.first { it.name == "sendMessage" && it.parameterTypes.size == 2 }
+            val task = requireNotNull(method.invoke(api, id, bytes)) { "sendMessage returned no task" }
+            addTaskListener(task, "addOnSuccessListener") { postStatus(onStatus, "sent") }
+            addTaskListener(task, "addOnFailureListener") { error ->
+                if (error is Throwable) reportError("Sending message to watch", error)
+                postStatus(onStatus, "Send failed: ${errorMessage(error)}")
+            }
+        }.onFailure {
+            reportError("Sending message to watch", it)
+            postStatus(onStatus, "Send failed: ${it.message ?: "SDK error"}")
         }
     }
 
@@ -119,17 +162,17 @@ class DataSyncController(
             it.name == "addListener" && it.parameterTypes.size == 2
         }.invoke(api, nodeId, listener)) { "addListener returned no task" }
         addTaskListener(task, "addOnSuccessListener") {
-            postStatus(onStatus, context.getString(R.string.connected_authorized))
+            postStatus(onStatus, "Connected and authorized")
         }
         addTaskListener(task, "addOnFailureListener") { error ->
             reportSdkFailure("Registering watch message listener", error)
             listener = null
-            postStatus(onStatus, context.getString(R.string.listener_failed, errorMessage(error)))
+            postStatus(onStatus, "Listener failed: ${errorMessage(error)}")
         }
     }
 
     private fun authorize(nodeId: String, onStatus: (String) -> Unit, registerMessages: Boolean) {
-        val api = authApi ?: return postStatus(onStatus, context.getString(R.string.authorization_unavailable))
+        val api = authApi ?: return postStatus(onStatus, "Authorization API unavailable")
         reportErrors("Checking Xiaomi wearable permission") {
             val permission = deviceManagerPermission()
             val method = api.javaClass.methods.first {
@@ -147,7 +190,7 @@ class DataSyncController(
             }
             addTaskListener(task, "addOnFailureListener") { error ->
                 reportSdkFailure("Checking Xiaomi wearable permission", error)
-                postStatus(onStatus, context.getString(R.string.permission_check_failed, errorMessage(error)))
+                postStatus(onStatus, "Permission check failed: ${errorMessage(error)}")
             }
         }
     }
@@ -157,8 +200,8 @@ class DataSyncController(
         onStatus: (String) -> Unit,
         registerMessages: Boolean
     ) {
-        val api = authApi ?: return postStatus(onStatus, context.getString(R.string.authorization_unavailable))
-        postStatus(onStatus, context.getString(R.string.grant_permission))
+        val api = authApi ?: return postStatus(onStatus, "Authorization API unavailable")
+        postStatus(onStatus, "Grant watch permission in Xiaomi Health")
         reportErrors("Requesting Xiaomi wearable permission") {
             val permissionClass = Class.forName("com.xiaomi.xms.wearable.auth.Permission")
             val permission = deviceManagerPermission()
@@ -174,12 +217,12 @@ class DataSyncController(
                 if (arrayContainsPermission(granted, "data_manager")) {
                     finishConnection(nodeId, onStatus, registerMessages)
                 } else {
-                    postStatus(onStatus, context.getString(R.string.watch_permission_denied))
+                    postStatus(onStatus, "Watch permission denied; tap Authorize watch")
                 }
             }
             addTaskListener(task, "addOnFailureListener") { error ->
                 reportSdkFailure("Requesting Xiaomi wearable permission", error)
-                postStatus(onStatus, context.getString(R.string.permission_denied))
+                postStatus(onStatus, "Permission denied; tap Authorize watch")
             }
         }
     }
@@ -191,11 +234,11 @@ class DataSyncController(
     ) {
         reportErrors("Registering Xiaomi message listener") {
             if (!registerMessages) {
-                postStatus(onStatus, context.getString(R.string.connected_authorized))
+                postStatus(onStatus, "Connected and authorized")
             } else if (listener == null) {
                 registerMessageListener(nodeId, onStatus)
             } else {
-                postStatus(onStatus, context.getString(R.string.connected_authorized))
+                postStatus(onStatus, "Connected and authorized")
             }
         }
     }
@@ -270,7 +313,13 @@ class DataSyncController(
     }
 
     private fun reportError(source: String, throwable: Throwable) {
-        val cause = (throwable as? InvocationTargetException)?.targetException ?: throwable
+        val cause = unwrap(throwable)
         mainHandler.post { onError(source, cause) }
+    }
+
+    private fun unwrap(throwable: Throwable): Throwable = when (throwable) {
+        is InvocationTargetException -> throwable.targetException?.let(::unwrap) ?: throwable
+        is UndeclaredThrowableException -> throwable.undeclaredThrowable?.let(::unwrap) ?: throwable
+        else -> throwable
     }
 }

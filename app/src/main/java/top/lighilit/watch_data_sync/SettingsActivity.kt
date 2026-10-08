@@ -34,9 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import top.lighilit.watch_data_sync.ui.theme.Watch_data_syncTheme
@@ -62,7 +60,6 @@ class SettingsActivity : ComponentActivity() {
 @Composable
 private fun SettingsScreen(onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val resources = LocalResources.current
     val preferences = remember { context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     val historyStore = remember { ReadingHistoryStore(context.applicationContext) }
     var status by remember { mutableStateOf("") }
@@ -75,36 +72,69 @@ private fun SettingsScreen(onBack: () -> Unit) {
     var savedBackupOnSend by rememberSaveable {
         mutableStateOf(preferences.getBoolean(BACKUP_ON_SEND_KEY, false))
     }
+    var savedCacheSize by rememberSaveable {
+        mutableStateOf(preferences.getInt(CACHE_SIZE_KEY, DEFAULT_CACHE_SIZE_MB).toString())
+    }
+    var savedImageSize by rememberSaveable {
+        mutableStateOf(preferences.getInt(IMAGE_SIZE_KEY, DEFAULT_IMAGE_SIZE_KB).toString())
+    }
+    var savedImageReduce by rememberSaveable {
+        mutableStateOf(preferences.getInt(IMAGE_REDUCE_KEY, DEFAULT_IMAGE_REDUCE_PERCENT).toString())
+    }
     var chunkSizeText by rememberSaveable { mutableStateOf(savedChunkSize) }
     var historyLimitText by rememberSaveable { mutableStateOf(savedHistoryLimit) }
     var backupOnSend by rememberSaveable { mutableStateOf(savedBackupOnSend) }
+    var cacheSize by rememberSaveable { mutableStateOf(savedCacheSize) }
+    var imageSize by rememberSaveable { mutableStateOf(savedImageSize) }
+    var imageReduce by rememberSaveable { mutableStateOf(savedImageReduce) }
     var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
     val controller = remember { DataSyncController(context.applicationContext) }
 
     val hasUnsavedChanges = chunkSizeText != savedChunkSize ||
-        historyLimitText != savedHistoryLimit || backupOnSend != savedBackupOnSend
+        historyLimitText != savedHistoryLimit || backupOnSend != savedBackupOnSend || cacheSize != savedCacheSize || imageSize != savedImageSize || imageReduce != savedImageReduce
 
     fun saveSettings(): Boolean {
         val chunkSize = chunkSizeText.toIntOrNull()
         val limit = historyLimitText.toIntOrNull()
+        val cacheSizeValue = cacheSize.toIntOrNull()
+        val imageSizeValue = imageSize.toIntOrNull()
+        val imageReduceValue = imageReduce.toIntOrNull()
         if (chunkSize == null || chunkSize !in 1..10_000) {
-            status = resources.getString(R.string.message_size_range)
+            status = "Message size must be 1 to 10000"
             return false
         }
         if (limit == null || limit !in 1..100) {
-            status = resources.getString(R.string.history_count_range)
+            status = "History count must be 1 to 100"
+            return false
+        }
+        if (cacheSizeValue == null || cacheSizeValue !in 1..512) {
+            status = "Cache size must be 1 to 512 MB"
+            return false
+        }
+        if (imageSizeValue == null || imageSizeValue !in 1..10240) {
+            status = "Image size must be positive"
+            return false
+        }
+        if (imageReduceValue == null || imageReduceValue !in 1..100) {
+            status = "Image reduce factor must be 1 to 100 percent"
             return false
         }
         preferences.edit()
             .putInt(CHUNK_SIZE_KEY, chunkSize)
             .putInt(HISTORY_LIMIT_KEY, limit)
             .putBoolean(BACKUP_ON_SEND_KEY, backupOnSend)
+            .putInt(CACHE_SIZE_KEY, cacheSizeValue)
+            .putInt(IMAGE_SIZE_KEY, imageSizeValue)
+            .putInt(IMAGE_REDUCE_KEY, imageReduceValue)
             .apply()
         historyStore.trim(limit)
         savedChunkSize = chunkSizeText
         savedHistoryLimit = historyLimitText
         savedBackupOnSend = backupOnSend
-        status = resources.getString(R.string.settings_saved)
+        savedCacheSize = cacheSize
+        savedImageSize = imageSize
+        savedImageReduce = imageReduce
+        status = "Settings saved"
         return true
     }
 
@@ -122,10 +152,10 @@ private fun SettingsScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.settings)) },
+                title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = { requestLeave() }) {
-                        Icon(painterResource(R.drawable.ic_back), stringResource(R.string.back))
+                        Icon(painterResource(R.drawable.ic_back), "Back")
                     }
                 }
             )
@@ -142,36 +172,45 @@ private fun SettingsScreen(onBack: () -> Unit) {
                     controller.requestPermission({ status = it }, registerMessages = false)
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text(stringResource(R.string.authorize_watch)) }
-            SettingsNumberField(stringResource(R.string.max_characters), chunkSizeText) {
+            ) { Text("Authorize watch") }
+            SettingsNumberField("Maximum characters per message", chunkSizeText) {
                 if (it.all(Char::isDigit)) chunkSizeText = it
             }
-            SettingsNumberField(stringResource(R.string.history_entries), historyLimitText) {
+            SettingsNumberField("Reading history entries", historyLimitText) {
                 if (it.all(Char::isDigit)) historyLimitText = it
             }
+            SettingsNumberField("Cache size (MB)", cacheSize) {
+                if (it.all(Char::isDigit)) cacheSize = it
+            }
+            SettingsNumberField("Image size limit (KB)", imageSize) {
+                if (it.all(Char::isDigit)) imageSize = it
+            }
+            SettingsNumberField("Image reduce factor (%)", imageReduce) {
+                if (it.all(Char::isDigit)) imageReduce = it
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(stringResource(R.string.backup_when_sending))
+                Text("Back up file when sending")
                 Checkbox(backupOnSend, { backupOnSend = it })
             }
             Button(
                 onClick = { saveSettings() },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text(stringResource(R.string.save_settings)) }
+            ) { Text("Save settings") }
         }
     }
 
     if (showLeaveDialog) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
-            title = { Text(stringResource(R.string.save_changes)) },
-            text = { Text(stringResource(R.string.settings_modified)) },
+            title = { Text("Save changes?") },
+            text = { Text("Settings have been modified.") },
             confirmButton = {
                 Button(onClick = {
                     if (saveSettings()) onBack()
-                }) { Text(stringResource(R.string.save)) }
+                }) { Text("Save") }
             },
             dismissButton = {
-                Button(onClick = onBack) { Text(stringResource(R.string.discard)) }
+                Button(onClick = onBack) { Text("Discard") }
             }
         )
     }
