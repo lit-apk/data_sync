@@ -161,13 +161,18 @@ private fun DataSyncScreen() {
             }
             return
         }
+        // Content keys name the image files on the watch: a different picture always gets a
+        // different path. Index-based names repeated across files/launches, and the watch's
+        // <image> showed its cached old picture for a reused path.
+        val keys = images.map { WatchImageEncoder.contentKey(it.bytes) }
         fun sendImage(imageIndex: Int) {
             if (imageIndex >= images.size) {
                 val page = JSONArray()
                 images.forEachIndexed { index, image ->
                     page.put(
                         JSONObject().put("type", "image").put("id", index).put("available", image.bytes.isNotEmpty())
-                            .put("alt", image.alt).put("width", image.width)
+                            .put("alt", image.alt).put("width", image.width).put("height", image.height)
+                            .put("key", keys[index])
                     )
                 }
                 page.put(JSONObject().put("type", "text").put("content", part.text))
@@ -187,7 +192,7 @@ private fun DataSyncScreen() {
                     return
                 }
                 val end = minOf(offset + chunkSize, image.bytes.size)
-                controller.sendImageChunk(imageIndex, offset, image.bytes.size, image.bytes.copyOfRange(offset, end)) { result ->
+                controller.sendImageChunk(imageIndex, keys[imageIndex], offset, image.bytes.size, image.bytes.copyOfRange(offset, end)) { result ->
                     if (result == "sent") {
                         sendChunk(end)
                     } else {

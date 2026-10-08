@@ -100,8 +100,8 @@ class DataSyncController(
      * are corrupted. Image bytes are sent as base64 (1.33x size, ASCII-safe); the
      * watch appends each chunk to the image file with native base64 decoding.
      */
-    fun sendImageChunk(id: Int, offset: Int, total: Int, payload: ByteArray, onStatus: (String) -> Unit) {
-        val data = "{\"type\":\"image_chunk\",\"id\":$id,\"offset\":$offset,\"length\":${payload.size}," +
+    fun sendImageChunk(id: Int, key: String, offset: Int, total: Int, payload: ByteArray, onStatus: (String) -> Unit) {
+        val data = "{\"type\":\"image_chunk\",\"id\":$id,\"key\":\"$key\",\"offset\":$offset,\"length\":${payload.size}," +
             "\"total\":$total,\"data\":\"${Base64.encodeToString(payload, Base64.NO_WRAP)}\"}"
         sendBytes(data.toByteArray(Charsets.US_ASCII), onStatus)
     }
