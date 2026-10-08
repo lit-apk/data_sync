@@ -180,8 +180,8 @@ private fun DataSyncScreen() {
                 return
             }
             val image = images[imageIndex]
-            // Each byte becomes up to 4 JSON characters; keep messages small for the bridge.
-            val chunkSize = 2 * 1024
+            // Multiple of 3 so base64 chunks carry no padding; ~8 KB per bridge message.
+            val chunkSize = 6 * 1024
             fun sendChunk(offset: Int) {
                 if (offset >= image.bytes.size) {
                     sendImage(imageIndex + 1)

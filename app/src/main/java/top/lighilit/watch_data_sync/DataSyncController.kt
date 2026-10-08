@@ -6,6 +6,7 @@ import android.os.Looper
 import org.json.JSONObject
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
+import android.util.Base64
 import java.lang.reflect.UndeclaredThrowableException
 
 /** Xiaomi wearable bridge wrapper. The vendor AAR is loaded from app/libs at runtime. */
@@ -96,21 +97,13 @@ class DataSyncController(
 
     /**
      * The Xiaomi bridge delivers messages to the watch as strings, so raw bytes
-     * are corrupted. Image bytes are sent as a JSON number array: the watch
-     * decodes it with native JSON.parse + Uint8Array.set, with no per-byte JS.
+     * are corrupted. Image bytes are sent as base64 (1.33x size, ASCII-safe); the
+     * watch appends each chunk to the image file with native base64 decoding.
      */
     fun sendImageChunk(id: Int, offset: Int, total: Int, payload: ByteArray, onStatus: (String) -> Unit) {
-        val data = StringBuilder(payload.size * 4 + 64)
-        data.append("{\"type\":\"image_chunk\",\"id\":").append(id)
-            .append(",\"offset\":").append(offset)
-            .append(",\"total\":").append(total)
-            .append(",\"data\":[")
-        payload.forEachIndexed { index, byte ->
-            if (index > 0) data.append(',')
-            data.append(byte.toInt() and 0xFF)
-        }
-        data.append("]}")
-        sendBytes(data.toString().toByteArray(Charsets.UTF_8), onStatus)
+        val data = "{\"type\":\"image_chunk\",\"id\":$id,\"offset\":$offset,\"length\":${payload.size}," +
+            "\"total\":$total,\"data\":\"${Base64.encodeToString(payload, Base64.NO_WRAP)}\"}"
+        sendBytes(data.toByteArray(Charsets.US_ASCII), onStatus)
     }
 
     private fun sendBytes(bytes: ByteArray, onStatus: (String) -> Unit) {
