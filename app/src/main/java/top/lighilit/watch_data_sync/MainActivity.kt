@@ -165,10 +165,9 @@ private fun DataSyncScreen() {
             if (imageIndex >= images.size) {
                 val page = JSONArray()
                 images.forEachIndexed { index, image ->
-                    val (width, height) = watchDisplay.value.imageSize(image.width, image.height)
                     page.put(
                         JSONObject().put("type", "image").put("id", index).put("available", image.bytes.isNotEmpty())
-                            .put("alt", image.alt).put("width", width).put("height", height)
+                            .put("alt", image.alt).put("width", image.width)
                     )
                 }
                 page.put(JSONObject().put("type", "text").put("content", part.text))
@@ -413,9 +412,13 @@ private fun DataSyncScreen() {
     }
 
     SideEffect {
+        // Every watch action carries contentWidth/pixelRatio; reading them from any action
+        // (not only the handshake) keeps a restarted phone app from using stale sizes.
+        controller.onAction = { request ->
+            WatchDisplay.fromMessage(request)?.let { watchDisplay.value = it }
+        }
         controller.registerActionCallback("protocol") { request ->
             val compatible = request.optString("version") == PROTOCOL_VERSION
-            watchDisplay.value = WatchDisplay.fromProtocol(request)
             controller.sendJson(
                 JSONObject().put("type", "protocol").put("version", PROTOCOL_VERSION).put("compatible", compatible)
             ) { result -> if (result != "sent") status = resources.getString(R.string.protocol_failed, result) }

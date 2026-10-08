@@ -251,12 +251,18 @@ class DataSyncController(
         }
     }
 
+    /** Called on the main thread for every watch action, before its registered callback. */
+    var onAction: ((JSONObject) -> Unit)? = null
+
     private fun handleMessage(bytes: ByteArray) {
         runCatching { JSONObject(String(bytes, Charsets.UTF_8)) }.onSuccess { json ->
             if (json.optString("type") == "action") {
                 val callback = callbacks[json.optString("action")]
-                if (callback != null) mainHandler.post {
-                    reportErrors("Running watch action callback") { callback(json) }
+                mainHandler.post {
+                    reportErrors("Running watch action callback") {
+                        onAction?.invoke(json)
+                        callback?.invoke(json)
+                    }
                 }
             }
         }

@@ -13,13 +13,21 @@ internal object WatchImageEncoder {
     private const val QUALITY_STEP = 8
     private const val MAX_PASSES = 6
 
-    /** Returns a JPEG no larger than [WatchDisplay.bitmapSize], or null if undecodable/too large. */
+    /**
+     * Returns one JPEG [WatchDisplay.bitmapWidth] wide with the aspect ratio preserved (tall
+     * images are scrolled on the watch, not split), or null if undecodable or still larger
+     * than [maxBytes] after all passes. [ReadingImage.width] is the real bitmap width; the
+     * watch uses it to refine its pixel ratio. If the JPEG exceeds [maxBytes] (image size
+     * limit setting), later passes lower quality and shrink by [reducePercent] (reduce factor
+     * setting), so such an image is shown narrower than the card.
+     */
     fun encode(image: ReadingImage, display: WatchDisplay, maxBytes: Int, reducePercent: Int): ReadingImage? {
         val bytes = image.bytes
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        val (targetWidth, targetHeight) = display.bitmapSize(bounds.outWidth, bounds.outHeight)
+        val targetWidth = display.bitmapWidth()
+        val targetHeight = (bounds.outHeight.toLong() * targetWidth / bounds.outWidth).toInt().coerceAtLeast(1)
 
         // Decode at the smallest power-of-two sample that is still >= the target, to save phone memory.
         var sample = 1
