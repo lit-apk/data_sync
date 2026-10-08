@@ -15,6 +15,16 @@ class DocumentFormatTest {
     }
 
     @Test
+    fun pdfUsesImageOnlyBackend() {
+        val format = DocumentFormats.forName("Scan.PDF")
+
+        assertEquals(listOf("application/pdf"), format.mimeTypes)
+        assertEquals(false, format.chaptered)
+        assertEquals(false, format.skipImages)
+        assertTrue(DocumentFormats.mimeTypes().contains("application/pdf"))
+    }
+
+    @Test
     fun ordinaryTextUsesPlainTextFallback() {
         val format = DocumentFormats.forName("notes.txt")
 
