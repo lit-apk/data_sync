@@ -2,6 +2,7 @@ package top.lighilit.watch_data_sync
 
 import java.io.File
 import java.io.InputStream
+import java.security.MessageDigest
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
@@ -55,8 +56,30 @@ internal class EpubArchive(
     }
 }
 
-internal class DocumentCache(private val directory: File, private val maxBytes: Long) {
-    init { directory.mkdirs() }
+/**
+ * On-disk cache of document entries. Entry names (e.g. `OEBPS/content.opf`) repeat
+ * across documents, so callers must use [forDocument]; the size limit spans all documents.
+ */
+internal class DocumentCache private constructor(
+    private val root: File,
+    private val maxBytes: Long,
+    private val directory: File
+) {
+    constructor(root: File, maxBytes: Long) : this(root, maxBytes, root)
+
+    init {
+        directory.mkdirs()
+        // Entries written directly under the root come from the old unscoped layout,
+        // where documents overwrote each other's entries; they are unsafe to reuse.
+        if (directory == root) root.listFiles()?.filter { it.isFile }?.forEach { it.delete() }
+    }
+
+    /** A cache private to one document; [key] must change whenever the document content may change. */
+    fun forDocument(key: String): DocumentCache {
+        val digest = MessageDigest.getInstance("SHA-256").digest(key.toByteArray(Charsets.UTF_8))
+        val scope = digest.joinToString("") { "%02x".format(it) }.take(32)
+        return DocumentCache(root, maxBytes, File(root, scope))
+    }
 
     fun get(name: String): ByteArray? = File(directory, safeName(name)).takeIf { it.isFile }?.readBytes()
 
@@ -67,7 +90,7 @@ internal class DocumentCache(private val directory: File, private val maxBytes: 
     }
 
     private fun trim() {
-        val files = directory.listFiles()?.sortedBy { it.lastModified() } ?: return
+        val files = root.walkTopDown().filter { it.isFile }.sortedBy { it.lastModified() }.toList()
         var total = files.sumOf { it.length() }
         files.forEach { file ->
             if (total > maxBytes) {

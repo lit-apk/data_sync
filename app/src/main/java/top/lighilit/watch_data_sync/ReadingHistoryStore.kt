@@ -2,6 +2,7 @@ package top.lighilit.watch_data_sync
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import org.json.JSONArray
 import org.json.JSONObject
@@ -62,7 +63,20 @@ internal class ReadingHistoryStore(private val context: Context) {
     }
 
     fun source(uri: Uri, name: String): TextSource {
-        return DocumentFormats.forName(name).source(context, uri, name, documentCache(context))
+        val cache = documentCache(context).forDocument(documentKey(uri))
+        return DocumentFormats.forName(name).source(context, uri, name, cache)
+    }
+
+    /** Identifies document content for caching: the URI plus size/mtime when the provider reports them. */
+    private fun documentKey(uri: Uri): String {
+        val columns = arrayOf(OpenableColumns.SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+        val details = runCatching {
+            context.contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                (0 until cursor.columnCount).joinToString("|") { cursor.getString(it).orEmpty() }
+            }
+        }.getOrNull()
+        return "$uri|${details.orEmpty()}"
     }
 
     fun displayName(uri: Uri): String {
