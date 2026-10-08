@@ -80,6 +80,7 @@ private fun DataSyncScreen() {
     val activeHistoryId = remember { mutableStateOf<String?>(null) }
     val activeChapter = remember { mutableStateOf(0) }
     val activeSource = remember { mutableStateOf<TextSource?>(null) }
+    val watchDisplay = remember { mutableStateOf(WatchDisplay.DEFAULT) }
     val remoteHistoryRequest = remember { mutableStateOf(false) }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var input by rememberSaveable { mutableStateOf("") }
@@ -150,6 +151,53 @@ private fun DataSyncScreen() {
         }
     }
 
+    fun sendPage(reader: Reader, part: FileTransfer.Part, images: List<ReadingImage>) {
+        if (images.isEmpty()) {
+            controller.sendText(part.text) { result ->
+                handleSentPart(reader, part, result)
+            }
+            return
+        }
+        fun sendImage(imageIndex: Int) {
+            if (imageIndex >= images.size) {
+                val page = JSONArray()
+                images.forEachIndexed { index, image ->
+                    val (width, height) = watchDisplay.value.imageSize(image.width, image.height)
+                    page.put(
+                        JSONObject().put("type", "image").put("id", index).put("available", image.bytes.isNotEmpty())
+                            .put("alt", image.alt).put("width", width).put("height", height)
+                    )
+                }
+                page.put(JSONObject().put("type", "text").put("content", part.text))
+                controller.sendJson(JSONObject().put("type", "page").put("items", page)) { result ->
+                    handleSentPart(reader, part, result)
+                }
+                return
+            }
+            val image = images[imageIndex]
+            // Each byte becomes up to 4 JSON characters; keep messages small for the bridge.
+            val chunkSize = 2 * 1024
+            fun sendChunk(offset: Int) {
+                if (offset >= image.bytes.size) {
+                    sendImage(imageIndex + 1)
+                    return
+                }
+                val end = minOf(offset + chunkSize, image.bytes.size)
+                controller.sendImageChunk(imageIndex, offset, image.bytes.size, image.bytes.copyOfRange(offset, end)) { result ->
+                    if (result == "sent") {
+                        sendChunk(end)
+                    } else {
+                        controller.sendText(part.text) { fallback ->
+                            handleSentPart(reader, part, fallback)
+                        }
+                    }
+                }
+            }
+            sendChunk(0)
+        }
+        sendImage(0)
+    }
+
     fun sendNextPart() {
         val reader = readerState.value ?: run {
             status = "No active transfer"
@@ -184,48 +232,23 @@ private fun DataSyncScreen() {
             }
             return
         }
-        val items = JSONArray()
-        val images = reader.imagesAt(part.startOffset)
-        if (images.isEmpty()) {
-            controller.sendText(part.text) { result ->
-                handleSentPart(reader, part, result)
+        val display = watchDisplay.value
+        val maxImageBytes = imageLimitBytes(context)
+        val reducePercent = imageReducePercent(context)
+        // Image extraction and re-encoding are slow; keep them off the main thread.
+        ioExecutor.execute {
+            val prepared = runCatching {
+                reader.imagesAt(part.startOffset).map { image ->
+                    WatchImageEncoder.encode(image, display, maxImageBytes, reducePercent) ?: image.copy(bytes = ByteArray(0))
+                }
             }
-            return
+            mainHandler.post {
+                prepared.onFailure {
+                    errorTrace = CrashReporter.format("Preparing page images", it)
+                    controller.sendText(part.text) { result -> handleSentPart(reader, part, result) }
+                }.onSuccess { images -> sendPage(reader, part, images) }
+            }
         }
-        fun sendImage(imageIndex: Int) {
-            if (imageIndex >= images.size) {
-                val page = JSONArray()
-                images.forEachIndexed { index, image ->
-                    page.put(JSONObject().put("type", "image").put("id", index).put("available", true).put("alt", image.alt))
-                }
-                page.put(JSONObject().put("type", "text").put("content", part.text))
-                controller.sendJson(JSONObject().put("type", "page").put("items", page)) { result ->
-                    handleSentPart(reader, part, result)
-                }
-                return
-            }
-            val image = images[imageIndex]
-            // Each byte becomes up to 4 JSON characters; keep messages small for the bridge.
-            val chunkSize = 2 * 1024
-            fun sendChunk(offset: Int) {
-                if (offset >= image.bytes.size) {
-                    sendImage(imageIndex + 1)
-                    return
-                }
-                val end = minOf(offset + chunkSize, image.bytes.size)
-                controller.sendImageChunk(imageIndex, offset, image.bytes.size, image.bytes.copyOfRange(offset, end)) { result ->
-                    if (result == "sent") {
-                        sendChunk(end)
-                    } else {
-                        controller.sendText(part.text) { fallback ->
-                            handleSentPart(reader, part, fallback)
-                        }
-                    }
-                }
-            }
-            sendChunk(0)
-        }
-        sendImage(0)
     }
 
     fun sendPreviousPart() {
@@ -387,6 +410,7 @@ private fun DataSyncScreen() {
     SideEffect {
         controller.registerActionCallback("protocol") { request ->
             val compatible = request.optString("version") == PROTOCOL_VERSION
+            watchDisplay.value = WatchDisplay.fromProtocol(request)
             controller.sendJson(
                 JSONObject().put("type", "protocol").put("version", PROTOCOL_VERSION).put("compatible", compatible)
             ) { result -> if (result != "sent") status = "Protocol negotiation failed: $result" }

@@ -2,10 +2,7 @@ package top.lighilit.watch_data_sync
 
 import android.content.Context
 import android.net.Uri
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.InputStreamReader
@@ -25,17 +22,10 @@ internal object EpubTextExtractor : DocumentFormat {
             { context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") },
             cache = cache
         )
-        return EpubTextSource({ context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") }, archive, null, imageLimitBytes(context), imageReducePercent(context))
+        return EpubTextSource({ context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") }, archive)
     }
-    override fun source(file: File, name: String, context: Context?): TextSource = context?.let {
-        EpubTextSource(
-            { file.inputStream() },
-            EpubArchive({ file.inputStream() }, file),
-            null,
-            imageLimitBytes(it),
-            imageReducePercent(it)
-        )
-    } ?: error("Context required for EPUB source")
+    override fun source(file: File, name: String, context: Context?): TextSource =
+        EpubTextSource({ file.inputStream() }, EpubArchive({ file.inputStream() }, file))
     override fun readText(input: InputStream, name: String) = extract(input)
     override fun preserveOriginalOnBackup() = true
     override fun copyToBackup(context: Context, uri: Uri, target: File, name: String) {
@@ -244,9 +234,7 @@ internal object EpubTextExtractor : DocumentFormat {
 private class EpubTextSource(
     private val openStream: () -> InputStream,
     private val archive: EpubArchive? = null,
-    private val chapterPath: String? = null,
-    private val maxImageBytes: Int = 2048 * 1024,
-    private val reducePercent: Int = DEFAULT_IMAGE_REDUCE_PERCENT
+    private val chapterPath: String? = null
 ) : TextSource {
     override val chaptered = true
     private val metadata by lazy { readMetadata() }
@@ -272,9 +260,9 @@ private class EpubTextSource(
                 ?: return@mapIndexedNotNull null
             val bytes = archive?.entryBytes(EpubTextExtractor.resolveForSource(base, source))
                 ?: readEntryBytes(EpubTextExtractor.resolveForSource(base, source)) ?: return@mapIndexedNotNull null
-            val encoded = downsizeImage(bytes, maxImageBytes) ?: return@mapIndexedNotNull null
             val alt = Regex("(?i)\\balt=[\\\"']([^\\\"']*)").find(match.value)?.groupValues?.get(1).orEmpty()
-            ReadingImage("chapter-${path.hashCode()}-$index", encoded, "image/jpeg", alt)
+            // Raw image bytes; WatchImageEncoder sizes and re-encodes them for the watch.
+            ReadingImage("chapter-${path.hashCode()}-$index", bytes, "", alt)
         }.toList()
     }
 
@@ -297,33 +285,6 @@ private class EpubTextSource(
         return null
     }
 
-    private fun downsizeImage(bytes: ByteArray, maxBytes: Int): ByteArray? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        val sample = maxOf(bounds.outWidth, bounds.outHeight)
-            .let { size -> generateSequence(1) { it * 2 }.takeWhile { it * 2 <= size / 512 }.lastOrNull() ?: 1 }
-        val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
-        var current = bitmap
-        try {
-            repeat(6) { pass ->
-                if (pass > 0) {
-                    val scale = reducePercent / 100f
-                    val next = Bitmap.createScaledBitmap(current, (current.width * scale).toInt().coerceAtLeast(1), (current.height * scale).toInt().coerceAtLeast(1), true)
-                    if (next !== current) current.recycle()
-                    current = next
-                }
-                val output = ByteArrayOutputStream()
-                current.compress(Bitmap.CompressFormat.JPEG, 82 - pass * 8, output)
-                if (output.size() <= maxBytes) return output.toByteArray()
-            }
-            return null
-        } finally {
-            if (!current.isRecycled) current.recycle()
-        }
-    }
-
     override fun chapters(): List<TextChapter> {
         val titles = metadata.navigationTitles(openStream, archive)
         return metadata.paths.mapIndexed { index, path ->
@@ -340,7 +301,7 @@ private class EpubTextSource(
             .ifBlank { "Chapter ${index + 1}" }
 
     override fun chapterSource(index: Int): TextSource =
-        EpubTextSource(openStream, archive, metadata.paths.getOrNull(index), maxImageBytes, reducePercent)
+        EpubTextSource(openStream, archive, metadata.paths.getOrNull(index))
 
 
     override fun readPart(startOffset: Int, maxChars: Int): SourcePart? {
