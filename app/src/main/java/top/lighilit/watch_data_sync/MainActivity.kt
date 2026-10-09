@@ -148,6 +148,13 @@ private fun DataSyncScreen() {
 
     fun chunkSize() = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
 
+    /**
+     * Chapter list for the history editor's picker. Page-numbered formats (PDF read as
+     * text) get none, so the editor shows a page-number field like the image PDF backend.
+     */
+    fun editorChapters(format: DocumentFormat, read: () -> List<TextChapter>): List<TextChapter> =
+        if (format.positionUnit == PositionUnit.PAGE_CHAPTER) emptyList() else read()
+
     /** Backend currently selected in the history editor for [entry]. */
     fun editFormat(entry: ReadingHistory): DocumentFormat =
         editBackends.firstOrNull { it.id == editBackend } ?: historyStore.format(entry)
@@ -490,7 +497,7 @@ private fun DataSyncScreen() {
             editBackends = DocumentFormats.backendsFor(historyStore.mimeType(uri, editName))
             val format = editBackends.firstOrNull { it.id == editBackend } ?: DocumentFormats.forMime(historyStore.mimeType(uri, editName))
             editBackend = format.id
-            editChapters = runCatching { historyStore.source(uri, editName, format).chapters() }
+            editChapters = runCatching { editorChapters(format) { historyStore.source(uri, editName, format).chapters() } }
                 .getOrElse { emptyList() }
         }
     }
@@ -653,12 +660,12 @@ private fun DataSyncScreen() {
                                 val format = historyStore.format(entry)
                                 editBackend = format.id
                                 editBackends = DocumentFormats.backendsFor(historyStore.mimeType(entry))
-                                editOffset = format.positionUnit.display(entry.offset, chunkSize()).toString()
+                                editOffset = format.positionUnit.display(entry.offset, chunkSize(), entry.chapter).toString()
                                 editChapter = entry.chapter
                                 editName = entry.name
                                 editSource = entry.source
                                 editBackup = entry.backedUp
-                                editChapters = runCatching { historyStore.source(entry, format).chapters() }
+                                editChapters = runCatching { editorChapters(format) { historyStore.source(entry, format).chapters() } }
                                     .getOrElse { emptyList() }
                                 editChapterExpanded = false
                             },
@@ -675,9 +682,12 @@ private fun DataSyncScreen() {
                                         if (offset == null) {
                                             status = resources.getString(R.string.offset_invalid)
                                         } else runCatching {
-                                            val selectedOffset = editChapters.getOrNull(editChapter)?.startOffset ?: offset
+                                            val unit = editFormat(entry).positionUnit
+                                            // Page-numbered chapters (PDF as text): the typed page is the chapter.
+                                            val chapter = if (unit == PositionUnit.PAGE_CHAPTER) editOffset.toInt() - 1 else editChapter
+                                            val selectedOffset = editChapters.getOrNull(chapter)?.startOffset ?: offset
                                             historyStore.update(
-                                                entry.copy(offset = selectedOffset, chapter = editChapter),
+                                                entry.copy(offset = selectedOffset, chapter = chapter),
                                                 editName,
                                                 editSource,
                                                 editBackup,
@@ -705,9 +715,12 @@ private fun DataSyncScreen() {
                                     editBackend = id
                                     // Chapters depend on the backend; re-read them for the edited file.
                                     editChapters = runCatching {
-                                        if (editSource == entry.source) historyStore.source(entry, format).chapters()
-                                        else historyStore.source(Uri.parse(editSource), editName, format).chapters()
+                                        editorChapters(format) {
+                                            if (editSource == entry.source) historyStore.source(entry, format).chapters()
+                                            else historyStore.source(Uri.parse(editSource), editName, format).chapters()
+                                        }
                                     }.getOrElse { emptyList() }
+                                    editOffset = format.positionUnit.display(entry.offset, chunkSize(), entry.chapter).toString()
                                 }
                             },
                             positionUnitOf = { historyStore.format(it).positionUnit },

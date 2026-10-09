@@ -22,7 +22,7 @@ internal class PdfRichFormat : DocumentFormat {
     override val description = R.string.backend_pdf_rich
     override val richText = true
     override val chaptered = true
-    override val positionUnit = PositionUnit.CHAPTER
+    override val positionUnit = PositionUnit.PAGE_CHAPTER
 
     override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?): TextSource {
         PDFBoxResourceLoader.init(context.applicationContext)

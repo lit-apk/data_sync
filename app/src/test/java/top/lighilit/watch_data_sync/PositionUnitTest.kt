@@ -36,4 +36,14 @@ class PositionUnitTest {
         assertEquals(PositionUnit.CHAPTER, DocumentFormats.forName("book.epub").positionUnit)
         assertEquals(PositionUnit.CHARACTER, DocumentFormats.forName("notes.txt").positionUnit)
     }
+
+    @Test
+    fun richPdfShowsPagesWithChapterPositions() {
+        val unit = DocumentFormats.forMime(MimeType.PDF, "PdfRichFormat").positionUnit
+        assertEquals(PositionUnit.PAGE_CHAPTER, unit)
+        assertEquals(R.string.page_value, unit.value)
+        assertEquals(3, unit.display(1234, 300, chapter = 2))
+        assertEquals(0, unit.toOffset(3, 300))
+        assertEquals(null, unit.toOffset(0, 300))
+    }
 }
