@@ -26,16 +26,17 @@ class DocumentFormatTest {
     @Test
     fun registryMapsEachTypeToItsBackends() {
         assertEquals(listOf("EpubTextExtractor"), DocumentFormats.backendsFor(MimeType.EPUB).map { it.id })
-        assertEquals(listOf("PdfFormat"), DocumentFormats.backendsFor(MimeType.PDF).map { it.id })
+        // Two PDF backends, so the chooser and history switcher appear for PDFs.
+        assertEquals(listOf("PdfImageFormat", "PdfRichFormat"), DocumentFormats.backendsFor(MimeType.PDF).map { it.id })
         assertEquals(listOf("PlainTextFormat"), DocumentFormats.backendsFor(MimeType.TEXT).map { it.id })
         assertEquals(listOf("PlainTextFormat"), DocumentFormats.backendsFor(MimeType.JSON).map { it.id })
     }
 
     @Test
     fun storedBackendIsUsedOnlyIfItHandlesTheType() {
-        assertEquals("PdfFormat", DocumentFormats.forMime(MimeType.PDF, "PdfFormat").id)
+        assertEquals("PdfRichFormat", DocumentFormats.forMime(MimeType.PDF, "PdfRichFormat").id)
         // An unknown or mismatched stored id falls back to the type's default backend.
-        assertEquals("PdfFormat", DocumentFormats.forMime(MimeType.PDF, "EpubTextExtractor").id)
+        assertEquals("PdfImageFormat", DocumentFormats.forMime(MimeType.PDF, "EpubTextExtractor").id)
         assertEquals("EpubTextExtractor", DocumentFormats.forMime(MimeType.EPUB, "").id)
     }
 

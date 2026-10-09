@@ -99,4 +99,5 @@
     <string name="backend_plain_text">Plain text</string>
     <string name="backend_epub">EPUB: text with images, by chapter</string>
     <string name="backend_pdf">PDF: each page as an image</string>
+    <string name="backend_pdf_rich">PDF: text and images, page by page</string>
 </resources>

@@ -12,7 +12,7 @@ import java.io.InputStream
 
 /** PDF backend: each PDF page is rendered on the phone and sent as one image-only page. */
 @DocumentBackend(MimeType.PDF)
-internal class PdfFormat : DocumentFormat {
+internal class PdfImageFormat : DocumentFormat {
     override val description = R.string.backend_pdf
     override val richText = true
     override val chaptered = false
