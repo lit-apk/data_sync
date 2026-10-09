@@ -11,9 +11,17 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
     var positionUnit: PositionUnit = PositionUnit.CHARACTER
         private set
 
-    /** Phrase for a position, e.g. "character 300" or "page 3". */
+    /** 0-based chapter this reader covers (chaptered formats only). */
+    var chapter: Int = 0
+        private set
+
+    /** Phrase for a position, e.g. "character 300", "page 3" or "chapter 2". */
     fun describe(offset: Int, through: Boolean = false): Pair<Int, Int> {
-        val value = if (through) positionUnit.through(offset, transfer.chunkSize) else positionUnit.display(offset, transfer.chunkSize)
+        val value = if (through) {
+            positionUnit.through(offset, transfer.chunkSize, chapter)
+        } else {
+            positionUnit.display(offset, transfer.chunkSize, chapter)
+        }
         return positionUnit.phrase to value
     }
 
@@ -54,6 +62,7 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
             }
             reader.skipImages = DocumentFormats.skipsImages(name)
             reader.positionUnit = DocumentFormats.positionUnit(name)
+            reader.chapter = chapter
             return reader
         }
     }

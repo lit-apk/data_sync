@@ -25,9 +25,15 @@ class PositionUnitTest {
     }
 
     @Test
-    fun pdfBackendUsesPagesAndTextUsesCharacters() {
+    fun chapterPositionsAreOneBasedChapterNumbers() {
+        assertEquals(3, PositionUnit.CHAPTER.display(1234, 300, chapter = 2))
+        assertEquals(3, PositionUnit.CHAPTER.through(1500, 300, chapter = 2))
+    }
+
+    @Test
+    fun backendsChooseTheirPositionUnit() {
         assertEquals(PositionUnit.PAGE, DocumentFormats.positionUnit("scan.pdf"))
-        assertEquals(PositionUnit.CHARACTER, DocumentFormats.positionUnit("book.epub"))
+        assertEquals(PositionUnit.CHAPTER, DocumentFormats.positionUnit("book.epub"))
         assertEquals(PositionUnit.CHARACTER, DocumentFormats.positionUnit("notes.txt"))
     }
 }

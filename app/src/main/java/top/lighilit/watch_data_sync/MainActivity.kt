@@ -558,7 +558,7 @@ private fun DataSyncScreen() {
                         ) { Text(stringResource(R.string.send_file)) }
                         selectedLabel?.let { Text(stringResource(R.string.active_document, it)) }
                         readerState.value?.let {
-                            Text(stringResource(it.positionUnit.value, it.positionUnit.display(it.currentOffset, chunkSize())))
+                            Text(stringResource(it.positionUnit.value, it.positionUnit.display(it.currentOffset, chunkSize(), it.chapter)))
                         }
                         HistoryView(
                             history = history,
@@ -722,7 +722,7 @@ private fun HistoryView(
                     }
                 } else {
                     val unit = DocumentFormats.positionUnit(entry.name)
-                    Text(stringResource(unit.value, unit.display(entry.offset, chunkSize)))
+                    Text(stringResource(unit.value, unit.display(entry.offset, chunkSize, entry.chapter)))
                     Text(
                         if (entry.backedUp) stringResource(R.string.internal_backup) else entry.source,
                         maxLines = 1,

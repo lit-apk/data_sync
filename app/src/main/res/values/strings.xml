@@ -92,4 +92,7 @@
     <string name="position_page">page %1$d</string>
     <string name="page_label">Page</string>
     <string name="page_value">Page: %1$d</string>
+    <string name="position_chapter">chapter %1$d</string>
+    <string name="chapter_label">Chapter</string>
+    <string name="chapter_value">Chapter: %1$d</string>
 </resources>

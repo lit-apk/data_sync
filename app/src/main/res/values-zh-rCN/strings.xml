@@ -92,4 +92,7 @@
     <string name="position_page">第 %1$d 页</string>
     <string name="page_label">页码</string>
     <string name="page_value">页码：%1$d</string>
+    <string name="position_chapter">第 %1$d 章</string>
+    <string name="chapter_label">章节</string>
+    <string name="chapter_value">章节：%1$d</string>
 </resources>
