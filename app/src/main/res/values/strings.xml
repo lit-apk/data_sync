@@ -49,7 +49,7 @@
     <string name="text_to_send">Text to send</string>
     <string name="text_input">Text input</string>
     <string name="submit">Submit</string>
-    <string name="upload_file">Upload file</string>
+    <string name="send_file">Send file</string>
     <string name="active_document">Active: %1$s</string>
     <string name="no_paired_watch">No paired watch</string>
     <string name="connect_failed">Connect failed: %1$s</string>

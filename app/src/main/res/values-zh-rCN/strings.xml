@@ -49,7 +49,7 @@
     <string name="text_to_send">要发送的文本</string>
     <string name="text_input">文本输入</string>
     <string name="submit">提交</string>
-    <string name="upload_file">上传文件</string>
+    <string name="send_file">上传文件</string>
     <string name="active_document">当前：%1$s</string>
     <string name="no_paired_watch">没有已配对的手表</string>
     <string name="connect_failed">连接失败：%1$s</string>

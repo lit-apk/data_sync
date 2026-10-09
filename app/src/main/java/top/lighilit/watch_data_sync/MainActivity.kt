@@ -547,7 +547,7 @@ private fun DataSyncScreen() {
                         Button(
                             onClick = { filePicker.launch(DOCUMENT_MIME_TYPES) },
                             modifier = Modifier.fillMaxWidth()
-                        ) { Text(stringResource(R.string.upload_file)) }
+                        ) { Text(stringResource(R.string.send_file)) }
                         selectedLabel?.let { Text(stringResource(R.string.active_document, it)) }
                         readerState.value?.let { Text(stringResource(R.string.character_offset, it.currentOffset)) }
                         HistoryView(
