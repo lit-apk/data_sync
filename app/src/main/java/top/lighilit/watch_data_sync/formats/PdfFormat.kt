@@ -11,9 +11,9 @@ import java.io.File
 import java.io.InputStream
 
 /** PDF backend: each PDF page is rendered on the phone and sent as one image-only page. */
-@DocumentBackend
+@DocumentBackend(MimeType.PDF)
 internal class PdfFormat : DocumentFormat {
-    override val mimeTypes = listOf("application/pdf")
+    override val description = R.string.backend_pdf
     override val richText = true
     override val chaptered = false
 
@@ -23,7 +23,6 @@ internal class PdfFormat : DocumentFormat {
     /** Offsets are `pageIndex * chunkSize`; show them as page numbers. */
     override val positionUnit = PositionUnit.PAGE
 
-    override fun matches(name: String) = name.substringAfterLast('.', "").equals("pdf", true)
 
     override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?): TextSource =
         PdfPageSource { context.contentResolver.openFileDescriptor(uri, "r") ?: error("Unable to open $name") }

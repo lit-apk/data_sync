@@ -32,8 +32,8 @@ class PositionUnitTest {
 
     @Test
     fun backendsChooseTheirPositionUnit() {
-        assertEquals(PositionUnit.PAGE, DocumentFormats.positionUnit("scan.pdf"))
-        assertEquals(PositionUnit.CHAPTER, DocumentFormats.positionUnit("book.epub"))
-        assertEquals(PositionUnit.CHARACTER, DocumentFormats.positionUnit("notes.txt"))
+        assertEquals(PositionUnit.PAGE, DocumentFormats.forName("scan.pdf").positionUnit)
+        assertEquals(PositionUnit.CHAPTER, DocumentFormats.forName("book.epub").positionUnit)
+        assertEquals(PositionUnit.CHARACTER, DocumentFormats.forName("notes.txt").positionUnit)
     }
 }

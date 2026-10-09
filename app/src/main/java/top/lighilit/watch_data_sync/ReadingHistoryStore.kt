@@ -16,7 +16,9 @@ internal data class ReadingHistory(
     val backedUp: Boolean,
     val offset: Int,
     val chapter: Int = 0,
-    val localOffset: Boolean = false
+    val localOffset: Boolean = false,
+    /** [DocumentFormat.id] chosen for this file; empty = the default for its type. */
+    val backend: String = ""
 )
 
 internal class ReadingHistoryStore(private val context: Context) {
@@ -37,34 +39,44 @@ internal class ReadingHistoryStore(private val context: Context) {
                         backedUp = item.optBoolean("backedUp"),
                         offset = item.optInt("offset").coerceAtLeast(0),
                         chapter = item.optInt("chapter").coerceAtLeast(0),
-                        localOffset = item.optBoolean("localOffset")
+                        localOffset = item.optBoolean("localOffset"),
+                        backend = item.optString("backend")
                     )
                 )
             }
         }
     }
 
-    fun addUri(uri: Uri, name: String, backup: Boolean, limit: Int): ReadingHistory {
+    fun addUri(uri: Uri, name: String, backup: Boolean, limit: Int, backend: String = ""): ReadingHistory {
         val entry = if (backup) {
             val file = uniqueBackupFile(name)
             copyToBackup(uri, file, name)
-            ReadingHistory(UUID.randomUUID().toString(), file.name, file.absolutePath, true, 0)
+            ReadingHistory(UUID.randomUUID().toString(), file.name, file.absolutePath, true, 0, backend = backend)
         } else {
-            ReadingHistory(UUID.randomUUID().toString(), name, uri.toString(), false, 0)
+            ReadingHistory(UUID.randomUUID().toString(), name, uri.toString(), false, 0, backend = backend)
         }
         saveEntry(entry, limit)
         return entry
     }
 
-    fun source(entry: ReadingHistory): TextSource = if (entry.backedUp) {
-        DocumentFormats.forName(entry.name).source(File(entry.source), entry.name, context)
+    /** File type of a history entry: backups by name, others as reported by their provider. */
+    fun mimeType(entry: ReadingHistory): MimeType =
+        if (entry.backedUp) MimeType.fromName(entry.name) else mimeType(Uri.parse(entry.source), entry.name)
+
+    fun mimeType(uri: Uri, name: String): MimeType = MimeType.detect(context, uri, name)
+
+    /** The backend stored for [entry] (or the default for its type if unset/unavailable). */
+    fun format(entry: ReadingHistory): DocumentFormat = DocumentFormats.forMime(mimeType(entry), entry.backend)
+
+    fun source(entry: ReadingHistory, format: DocumentFormat = format(entry)): TextSource = if (entry.backedUp) {
+        format.source(File(entry.source), entry.name, context)
     } else {
-        source(Uri.parse(entry.source), entry.name)
+        source(Uri.parse(entry.source), entry.name, format)
     }
 
-    fun source(uri: Uri, name: String): TextSource {
+    fun source(uri: Uri, name: String, format: DocumentFormat): TextSource {
         val cache = documentCache(context).forDocument(documentKey(uri))
-        return DocumentFormats.forName(name).source(context, uri, name, cache)
+        return format.source(context, uri, name, cache)
     }
 
     /** Identifies document content for caching: the URI plus size/mtime when the provider reports them. */
@@ -99,7 +111,7 @@ internal class ReadingHistoryStore(private val context: Context) {
             entry.copy(
                 offset = offset.coerceAtLeast(0),
                 chapter = chapter.coerceAtLeast(0),
-                localOffset = DocumentFormats.isChaptered(entry.name)
+                localOffset = format(entry).chaptered
             ),
             limit
         )
@@ -110,20 +122,19 @@ internal class ReadingHistoryStore(private val context: Context) {
         entries.firstOrNull { it.id == id && it.backedUp }?.let { File(it.source).delete() }
         val array = JSONArray()
         entries.filterNot { it.id == id }.forEach {
-            array.put(
-                JSONObject()
-                    .put("id", it.id)
-                    .put("name", it.name)
-                    .put("source", it.source)
-                    .put("backedUp", it.backedUp)
-                    .put("offset", it.offset)
-                    .put("chapter", it.chapter)
-            )
+            array.put(it.toJson())
         }
         preferences.edit().putString("entries", array.toString()).apply()
     }
 
-    fun update(entry: ReadingHistory, newName: String, newSource: String, backup: Boolean, limit: Int): ReadingHistory {
+    fun update(
+        entry: ReadingHistory,
+        newName: String,
+        newSource: String,
+        backup: Boolean,
+        limit: Int,
+        backend: String = entry.backend
+    ): ReadingHistory {
         val updated = when {
             backup && entry.backedUp -> {
                 val oldFile = File(entry.source)
@@ -144,6 +155,7 @@ internal class ReadingHistoryStore(private val context: Context) {
                 entry.copy(name = newName, source = newSource, backedUp = false)
             }
         }
+            .copy(backend = backend)
         saveEntry(updated, limit)
         return updated
     }
@@ -154,15 +166,7 @@ internal class ReadingHistoryStore(private val context: Context) {
         entries.drop(keep.size).filter { it.backedUp }.forEach { File(it.source).delete() }
         val array = JSONArray()
         keep.forEach {
-            array.put(
-                JSONObject()
-                    .put("id", it.id)
-                    .put("name", it.name)
-                    .put("source", it.source)
-                    .put("backedUp", it.backedUp)
-                    .put("offset", it.offset)
-                    .put("chapter", it.chapter)
-            )
+            array.put(it.toJson())
         }
         preferences.edit().putString("entries", array.toString()).apply()
     }
@@ -175,15 +179,7 @@ internal class ReadingHistoryStore(private val context: Context) {
         }
         val array = JSONArray()
         entries.take(limit.coerceAtLeast(1)).forEach {
-            array.put(
-                JSONObject()
-                    .put("id", it.id)
-                    .put("name", it.name)
-                    .put("source", it.source)
-                    .put("backedUp", it.backedUp)
-                    .put("offset", it.offset)
-                    .put("chapter", it.chapter)
-            )
+            array.put(it.toJson())
         }
         preferences.edit().putString("entries", array.toString()).apply()
     }
@@ -207,4 +203,14 @@ internal class ReadingHistoryStore(private val context: Context) {
             target.outputStream().use { output -> input.copyTo(output) }
         } ?: error("Unable to open $name")
     }
+
+    private fun ReadingHistory.toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("name", name)
+        .put("source", source)
+        .put("backedUp", backedUp)
+        .put("offset", offset)
+        .put("chapter", chapter)
+        .put("localOffset", localOffset)
+        .put("backend", backend)
 }

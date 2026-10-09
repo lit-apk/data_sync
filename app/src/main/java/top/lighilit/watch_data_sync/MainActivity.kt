@@ -37,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -49,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
@@ -70,7 +72,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private val DOCUMENT_MIME_TYPES: Array<String>
-    get() = DocumentFormats.mimeTypes()
+    get() = DocumentFormats.pickerTypes()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,6 +103,12 @@ private fun DataSyncScreen() {
     var errorTrace by rememberSaveable { mutableStateOf(CrashReporter.consumeLastCrash(context)) }
     var chapterDialog by remember { mutableStateOf<List<TextChapter>?>(null) }
     var chapterDialogAction by remember { mutableStateOf<((TextChapter) -> Unit)?>(null) }
+    // Backend chooser, shown when several backends can open the picked file's type.
+    var backendDialog by remember { mutableStateOf<List<DocumentFormat>?>(null) }
+    var backendDialogAction by remember { mutableStateOf<((DocumentFormat) -> Unit)?>(null) }
+    val activeFormat = remember { mutableStateOf<DocumentFormat?>(null) }
+    var editBackend by remember { mutableStateOf("") }
+    var editBackends by remember { mutableStateOf<List<DocumentFormat>>(emptyList()) }
     var editChapters by remember { mutableStateOf<List<TextChapter>>(emptyList()) }
     var editChapterExpanded by remember { mutableStateOf(false) }
     val ioExecutor = remember { Executors.newSingleThreadExecutor() }
@@ -139,6 +147,10 @@ private fun DataSyncScreen() {
     }
 
     fun chunkSize() = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
+
+    /** Backend currently selected in the history editor for [entry]. */
+    fun editFormat(entry: ReadingHistory): DocumentFormat =
+        editBackends.firstOrNull { it.id == editBackend } ?: historyStore.format(entry)
 
     fun handleSentPart(reader: Reader, part: FileTransfer.Part, result: String) {
         if (result == "sent") {
@@ -237,7 +249,7 @@ private fun DataSyncScreen() {
                             return@onSuccess
                         }
                         val chunkSize = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
-                        readerState.value = Reader.of(source, selectedLabel.orEmpty(), chunkSize, 0, chapter.index)
+                        readerState.value = Reader.of(source, activeFormat.value ?: DocumentFormats.forName(selectedLabel.orEmpty()), chunkSize, 0, chapter.index)
                         activeChapter.value = chapter.index
                         sendNextPart()
                     }
@@ -301,9 +313,18 @@ private fun DataSyncScreen() {
             }
     }
 
-    fun startTransfer(source: TextSource, label: String, length: Int? = null, offset: Int = 0, historyId: String? = null, chapter: Int = 0) {
+    fun startTransfer(
+        source: TextSource,
+        format: DocumentFormat,
+        label: String,
+        length: Int? = null,
+        offset: Int = 0,
+        historyId: String? = null,
+        chapter: Int = 0
+    ) {
         val chunkSize = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
-        readerState.value = Reader.of(source, label, chunkSize, offset, chapter)
+        readerState.value = Reader.of(source, format, chunkSize, offset, chapter)
+        activeFormat.value = format
         activeSource.value = source
         activeHistoryId.value = historyId
         activeChapter.value = chapter
@@ -318,6 +339,7 @@ private fun DataSyncScreen() {
 
     fun openSource(
         source: TextSource,
+        format: DocumentFormat,
         label: String,
         offset: Int = 0,
         historyId: String? = null,
@@ -325,7 +347,7 @@ private fun DataSyncScreen() {
         chooseChapter: Boolean = false
     ) {
         if (!source.chaptered) {
-            startTransfer(source, label, offset = offset, historyId = historyId)
+            startTransfer(source, format, label, offset = offset, historyId = historyId)
             return
         }
         status = resources.getString(R.string.preparing_epub)
@@ -345,10 +367,10 @@ private fun DataSyncScreen() {
                                     historyStore.updatePosition(it, 0, selected.index, historyLimit())
                                     history = historyStore.load()
                                 }
-                                startTransfer(source, label, offset = 0, historyId = historyId, chapter = selected.index)
+                                startTransfer(source, format, label, offset = 0, historyId = historyId, chapter = selected.index)
                             }
                         } else {
-                            startTransfer(source, label, offset = offset, historyId = historyId, chapter = chapter)
+                            startTransfer(source, format, label, offset = offset, historyId = historyId, chapter = chapter)
                         }
                     }
                 }
@@ -380,9 +402,47 @@ private fun DataSyncScreen() {
     }
 
     fun resume(entry: ReadingHistory) {
-        runCatching { historyStore.source(entry) }
-            .onSuccess { openSource(it, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter) }
+        runCatching { historyStore.format(entry).let { it to historyStore.source(entry, it) } }
+            .onSuccess { (format, source) ->
+                openSource(source, format, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter)
+            }
             .onFailure { status = resources.getString(R.string.open_failed, it.message) }
+    }
+
+    /** Adds a picked file to history with the chosen backend and opens it (call off the main thread). */
+    fun addAndOpen(uri: Uri, name: String, format: DocumentFormat) {
+        runCatching {
+            val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false)
+            val entry = historyStore.addUri(uri, name, backupOnSend, historyLimit(), backend = format.id)
+            val source = historyStore.source(entry, format)
+            mainHandler.post {
+                history = historyStore.load()
+                openSource(source, format, entry.name, offset = entry.offset, historyId = entry.id, chooseChapter = true)
+            }
+        }.onFailure { error ->
+            mainHandler.post { status = resources.getString(R.string.file_read_failed, error.message) }
+        }
+    }
+
+    backendDialog?.let { backends ->
+        AlertDialog(
+            onDismissRequest = {
+                backendDialog = null
+                backendDialogAction = null
+            },
+            title = { Text(stringResource(R.string.select_backend)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    backends.forEach { format ->
+                        Button(
+                            onClick = { backendDialogAction?.invoke(format) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(stringResource(format.description)) }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
     }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -397,12 +457,19 @@ private fun DataSyncScreen() {
                             )
                         }
                         val name = historyStore.displayName(uri)
-                        val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false)
-                        val entry = historyStore.addUri(uri, name, backupOnSend, historyLimit())
-                        val source = historyStore.source(entry)
-                        mainHandler.post {
-                            history = historyStore.load()
-                            openSource(source, entry.name, offset = entry.offset, historyId = entry.id, chooseChapter = true)
+                        val backends = DocumentFormats.backendsFor(historyStore.mimeType(uri, name))
+                        if (backends.size > 1) {
+                            // Several backends can open this type: ask first (before the chapter dialog).
+                            mainHandler.post {
+                                backendDialog = backends
+                                backendDialogAction = { format ->
+                                    backendDialog = null
+                                    backendDialogAction = null
+                                    ioExecutor.execute { addAndOpen(uri, name, format) }
+                                }
+                            }
+                        } else {
+                            addAndOpen(uri, name, backends.firstOrNull() ?: DocumentFormats.forName(name))
                         }
                     }.onFailure { error ->
                         mainHandler.post { status = resources.getString(R.string.file_read_failed, error.message) }
@@ -419,7 +486,11 @@ private fun DataSyncScreen() {
             }
             editSource = uri.toString()
             editName = historyStore.displayName(uri)
-            editChapters = runCatching { historyStore.source(uri, editName).chapters() }
+            // The new file may be another type: offer its backends, keeping the choice if valid.
+            editBackends = DocumentFormats.backendsFor(historyStore.mimeType(uri, editName))
+            val format = editBackends.firstOrNull { it.id == editBackend } ?: DocumentFormats.forMime(historyStore.mimeType(uri, editName))
+            editBackend = format.id
+            editChapters = runCatching { historyStore.source(uri, editName, format).chapters() }
                 .getOrElse { emptyList() }
         }
     }
@@ -459,10 +530,10 @@ private fun DataSyncScreen() {
             if (entry == null) {
                 sendHistoryError(resources.getString(R.string.history_missing))
             } else {
-                runCatching { historyStore.source(entry) }
-                    .onSuccess {
+                runCatching { historyStore.format(entry).let { it to historyStore.source(entry, it) } }
+                    .onSuccess { (format, source) ->
                         remoteHistoryRequest.value = true
-                        openSource(it, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter)
+                        openSource(source, format, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter)
                     }
                     .onFailure { sendHistoryError(resources.getString(R.string.history_open_failed, entry.name, it.message)) }
             }
@@ -547,7 +618,14 @@ private fun DataSyncScreen() {
                             minLines = 7
                         )
                         Button(
-                            onClick = { startTransfer(StringTextSource(input), resources.getString(R.string.text_input), input.length) },
+                            onClick = {
+                                startTransfer(
+                                    StringTextSource(input),
+                                    DocumentFormats.forMime(MimeType.TEXT),
+                                    resources.getString(R.string.text_input),
+                                    input.length
+                                )
+                            },
                             enabled = input.isNotEmpty(),
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(stringResource(R.string.submit)) }
@@ -572,12 +650,15 @@ private fun DataSyncScreen() {
                             onEntryClick =(::resume),
                             onEdit = { entry ->
                                 editingId = entry.id
-                                editOffset = DocumentFormats.positionUnit(entry.name).display(entry.offset, chunkSize()).toString()
+                                val format = historyStore.format(entry)
+                                editBackend = format.id
+                                editBackends = DocumentFormats.backendsFor(historyStore.mimeType(entry))
+                                editOffset = format.positionUnit.display(entry.offset, chunkSize()).toString()
                                 editChapter = entry.chapter
                                 editName = entry.name
                                 editSource = entry.source
                                 editBackup = entry.backedUp
-                                editChapters = runCatching { historyStore.source(entry).chapters() }
+                                editChapters = runCatching { historyStore.source(entry, format).chapters() }
                                     .getOrElse { emptyList() }
                                 editChapterExpanded = false
                             },
@@ -590,7 +671,7 @@ private fun DataSyncScreen() {
                                         historyEditMode = false
                                     } else {
                                         val offset = editOffset.toIntOrNull()
-                                            ?.let { DocumentFormats.positionUnit(entry.name).toOffset(it, chunkSize()) }
+                                            ?.let { editFormat(entry).positionUnit.toOffset(it, chunkSize()) }
                                         if (offset == null) {
                                             status = resources.getString(R.string.offset_invalid)
                                         } else runCatching {
@@ -600,7 +681,8 @@ private fun DataSyncScreen() {
                                                 editName,
                                                 editSource,
                                                 editBackup,
-                                                historyLimit()
+                                                historyLimit(),
+                                                backend = editBackend
                                             )
                                         }.onSuccess {
                                             history = historyStore.load()
@@ -614,6 +696,23 @@ private fun DataSyncScreen() {
                             onOffsetChange = { if (it.all(Char::isDigit)) editOffset = it },
                             editChapter = editChapter,
                             editChapters = editChapters,
+                            editBackends = editBackends,
+                            editBackend = editBackend,
+                            onBackendChange = { id ->
+                                val entry = history.firstOrNull { it.id == editingId }
+                                val format = editBackends.firstOrNull { it.id == id }
+                                if (entry != null && format != null) {
+                                    editBackend = id
+                                    // Chapters depend on the backend; re-read them for the edited file.
+                                    editChapters = runCatching {
+                                        if (editSource == entry.source) historyStore.source(entry, format).chapters()
+                                        else historyStore.source(Uri.parse(editSource), editName, format).chapters()
+                                    }.getOrElse { emptyList() }
+                                }
+                            },
+                            positionUnitOf = { historyStore.format(it).positionUnit },
+                            editPositionUnit = history.firstOrNull { it.id == editingId }?.let { editFormat(it).positionUnit }
+                                ?: PositionUnit.CHARACTER,
                             editChapterExpanded = editChapterExpanded,
                             onChapterChange = { editChapter = it; editChapterExpanded = false },
                             onChapterToggle = { editChapterExpanded = !editChapterExpanded },
@@ -637,6 +736,11 @@ private fun HistoryView(
     chunkSize: Int,
     editChapter: Int,
     editChapters: List<TextChapter>,
+    editBackends: List<DocumentFormat>,
+    editBackend: String,
+    onBackendChange: (String) -> Unit,
+    positionUnitOf: (ReadingHistory) -> PositionUnit,
+    editPositionUnit: PositionUnit,
     editChapterExpanded: Boolean,
     editName: String,
     editSource: String,
@@ -671,6 +775,19 @@ private fun HistoryView(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(entry.name, style = MaterialTheme.typography.titleSmall)
                 if (editingId == entry.id) {
+                    // Backend switcher: only when several backends can open this file type.
+                    if (editBackends.size > 1) {
+                        Text(stringResource(R.string.select_backend), style = MaterialTheme.typography.labelMedium)
+                        editBackends.forEach { format ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { onBackendChange(format.id) },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = format.id == editBackend, onClick = { onBackendChange(format.id) })
+                                Text(stringResource(format.description))
+                            }
+                        }
+                    }
                     if (editChapters.isNotEmpty()) {
                         val selectedChapter = editChapters.firstOrNull { it.index == editChapter }
                         Button(onClick = onChapterToggle, modifier = Modifier.fillMaxWidth()) {
@@ -693,7 +810,7 @@ private fun HistoryView(
                             }
                         }
                     } else {
-                        NumberField(stringResource(DocumentFormats.positionUnit(entry.name).label), editOffset, onOffsetChange)
+                        NumberField(stringResource(editPositionUnit.label), editOffset, onOffsetChange)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(stringResource(R.string.backup_in_app))
@@ -721,7 +838,7 @@ private fun HistoryView(
                         Text(stringResource(R.string.delete))
                     }
                 } else {
-                    val unit = DocumentFormats.positionUnit(entry.name)
+                    val unit = positionUnitOf(entry)
                     Text(stringResource(unit.value, unit.display(entry.offset, chunkSize, entry.chapter)))
                     Text(
                         if (entry.backedUp) stringResource(R.string.internal_backup) else entry.source,

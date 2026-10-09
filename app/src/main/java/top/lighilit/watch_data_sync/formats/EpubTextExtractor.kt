@@ -11,15 +11,14 @@ import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
 
-@DocumentBackend
+@DocumentBackend(MimeType.EPUB)
 internal object EpubTextExtractor : DocumentFormat {
-    override val mimeTypes = listOf("application/epub+zip")
+    override val description = R.string.backend_epub
     override val richText = true
     override val chaptered = true
 
     /** Offsets are local to the current chapter; show the chapter number instead. */
     override val positionUnit = PositionUnit.CHAPTER
-    override fun matches(name: String) = name.substringAfterLast('.', "").equals("epub", true)
     override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?): TextSource {
         val archive = EpubArchive(
             { context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") },

@@ -95,4 +95,8 @@
     <string name="position_chapter">第 %1$d 章</string>
     <string name="chapter_label">章节</string>
     <string name="chapter_value">章节：%1$d</string>
+    <string name="select_backend">打开方式</string>
+    <string name="backend_plain_text">纯文本</string>
+    <string name="backend_epub">EPUB：按章节显示文字和图片</string>
+    <string name="backend_pdf">PDF：每页显示为一张图片</string>
 </resources>

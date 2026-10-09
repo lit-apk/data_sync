@@ -48,20 +48,20 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
     abstract fun previousPart(): FileTransfer.Part?
 
     companion object {
-        fun of(source: TextSource, name: String, chunkSize: Int, offset: Int, chapter: Int = 0): Reader {
-            val transferSource = if (DocumentFormats.isChaptered(name)) {
+        fun of(source: TextSource, format: DocumentFormat, chunkSize: Int, offset: Int, chapter: Int = 0): Reader {
+            val transferSource = if (format.chaptered) {
                 source.chapterSource(chapter)
             } else {
                 source
             }
             val transfer = FileTransfer(transferSource, chunkSize, offset)
-            val reader = if (DocumentFormats.isRichText(name)) {
-                EpubReader(transfer)
+            val reader = if (format.richText) {
+                RichTextReader(transfer)
             } else {
                 PlainTextReader(transfer)
             }
-            reader.skipImages = DocumentFormats.skipsImages(name)
-            reader.positionUnit = DocumentFormats.positionUnit(name)
+            reader.skipImages = format.skipImages
+            reader.positionUnit = format.positionUnit
             reader.chapter = chapter
             return reader
         }
@@ -77,4 +77,3 @@ internal open class RichTextReader(transfer: FileTransfer) : Reader(transfer) {
         throw PreviousPageNotSupportedException("Previous page is not supported for this content")
 }
 
-internal class EpubReader(transfer: FileTransfer) : RichTextReader(transfer)

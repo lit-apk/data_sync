@@ -2,21 +2,31 @@ package top.lighilit.watch_data_sync
 
 import android.content.Context
 import android.net.Uri
+import androidx.annotation.StringRes
 import java.io.File
 import java.io.InputStream
 
+/**
+ * Marks a document backend for the build-time registry generator. [mimeTypes] are the
+ * file types it can open; several backends may share a type, and the user then picks one
+ * (shown with [DocumentFormat.description]).
+ */
 @Target(AnnotationTarget.CLASS)
-annotation class DocumentBackend
+annotation class DocumentBackend(vararg val mimeTypes: MimeType)
 
 internal interface DocumentFormat {
-    val mimeTypes: List<String>
+    /** Stable id stored in reading history to remember the chosen backend. */
+    val id: String get() = javaClass.simpleName
+
+    /** Shown when choosing between backends for the same file type. */
+    @get:StringRes
+    val description: Int
+
     val richText: Boolean
     val chaptered: Boolean
-    fun matches(name: String): Boolean
     fun source(context: Context, uri: Uri, name: String, cache: DocumentCache? = null): TextSource
     fun source(file: File, name: String, context: Context? = null): TextSource
     fun readText(input: InputStream, name: String): String
-    val fallback: Boolean get() = false
 
     /**
      * Whether the watch may offer to skip a run of image-only pages and jump to the next text.
@@ -29,16 +39,30 @@ internal interface DocumentFormat {
     val positionUnit: PositionUnit get() = PositionUnit.CHARACTER
 }
 
-internal object DocumentFormats {
-    private val formats: List<DocumentFormat> = GeneratedDocumentFormats.all()
+/** One generated registry entry: a backend and the types from its `@DocumentBackend`. */
+internal class BackendRegistration(val format: DocumentFormat, val mimeTypes: List<MimeType>)
 
-    fun mimeTypes(): Array<String> = formats.flatMap { it.mimeTypes }.distinct().toTypedArray()
-    fun forName(name: String): DocumentFormat =
-        formats.firstOrNull { !it.fallback && it.matches(name) }
-            ?: formats.firstOrNull { it.fallback }
-            ?: error("No fallback document format registered")
-    fun isRichText(name: String) = forName(name).richText
-    fun isChaptered(name: String) = forName(name).chaptered
-    fun skipsImages(name: String) = forName(name).skipImages
-    fun positionUnit(name: String) = forName(name).positionUnit
+/** Registry: file type -> the backends that can open it (in declaration-name order). */
+internal object DocumentFormats {
+    private val byMime: Map<MimeType, List<DocumentFormat>> = GeneratedDocumentFormats.all().let { registrations ->
+        MimeType.entries.associateWith { mime ->
+            registrations.filter { mime in it.mimeTypes }.map { it.format }
+        }
+    }
+
+    /** Types offered by the file picker. */
+    fun pickerTypes(): Array<String> =
+        byMime.filterValues { it.isNotEmpty() }.keys.map { it.pickerType }.distinct().toTypedArray()
+
+    fun backendsFor(mime: MimeType): List<DocumentFormat> = byMime[mime].orEmpty()
+
+    /** The backend [backendId] if it handles [mime], else the first one registered for [mime]. */
+    fun forMime(mime: MimeType, backendId: String? = null): DocumentFormat {
+        val backends = backendsFor(mime).ifEmpty { backendsFor(MimeType.TEXT) }
+        return backends.firstOrNull { it.id == backendId } ?: backends.firstOrNull()
+            ?: error("No document backend registered for ${mime.value}")
+    }
+
+    /** Default backend by file name (extension only). */
+    fun forName(name: String): DocumentFormat = forMime(MimeType.fromName(name))
 }

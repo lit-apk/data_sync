@@ -5,13 +5,11 @@ import android.net.Uri
 import java.io.File
 import java.io.InputStream
 
-@DocumentBackend
+@DocumentBackend(MimeType.TEXT, MimeType.JSON)
 internal class PlainTextFormat : DocumentFormat {
-    override val mimeTypes = listOf("text/*", "application/json")
+    override val description = R.string.backend_plain_text
     override val richText = false
     override val chaptered = false
-    override fun matches(name: String) = true
-    override val fallback = true
     override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?) = PlainTextSource {
         context.contentResolver.openInputStream(uri) ?: error("Unable to open $name")
     }

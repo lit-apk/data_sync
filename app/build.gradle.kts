@@ -15,21 +15,31 @@ val generateDocumentFormats by tasks.registering {
         val outputDir = generatedFormatDir
         val packageDir = File(outputDir, "top/lighilit/watch_data_sync")
         packageDir.mkdirs()
-        val backendPattern = Regex("@DocumentBackend\\s+(?:internal\\s+)?(class|object)\\s+(\\w+)\\s*:")
+        // @DocumentBackend(MimeType.EPUB, ...) class/object Name : DocumentFormat
+        val backendPattern = Regex("@DocumentBackend\\(([^)]*)\\)\\s+(?:internal\\s+)?(class|object)\\s+(\\w+)\\s*:")
         val backends = fileTree("src/main/java")
             .matching { include("**/*.kt") }
             .files
-            .flatMap { backendPattern.findAll(it.readText()).map { match -> match.groupValues[1] to match.groupValues[2] }.toList() }
-            .distinct()
+            .flatMap { file ->
+                backendPattern.findAll(file.readText()).map { match ->
+                    val mimes = match.groupValues[1].split(',').map { it.trim().removePrefix("MimeType.") }
+                        .filter { it.isNotEmpty() }
+                    require(mimes.isNotEmpty()) { "@DocumentBackend on ${match.groupValues[3]} lists no MimeType" }
+                    Triple(match.groupValues[2], match.groupValues[3], mimes)
+                }.toList()
+            }
+            .distinctBy { it.second }
             .sortedBy { it.second }
         require(backends.isNotEmpty()) { "No @DocumentBackend implementations found" }
         File(packageDir, "GeneratedDocumentFormats.java").writeText(
             "package top.lighilit.watch_data_sync;\n\n" +
                 "final class GeneratedDocumentFormats {\n" +
-                "    static java.util.List<DocumentFormat> all() {\n" +
+                "    static java.util.List<BackendRegistration> all() {\n" +
                 "        return java.util.Arrays.asList(\n" +
-                backends.joinToString(",\n") { (kind, name) ->
-                    if (kind == "object") "            $name.INSTANCE" else "            new $name()"
+                backends.joinToString(",\n") { (kind, name, mimes) ->
+                    val instance = if (kind == "object") "$name.INSTANCE" else "new $name()"
+                    val types = mimes.joinToString(", ") { "MimeType.$it" }
+                    "            new BackendRegistration($instance, java.util.Arrays.asList($types))"
                 } +
                 "\n        );\n    }\n}\n"
         )

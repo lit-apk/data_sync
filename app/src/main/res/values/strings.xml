@@ -95,4 +95,8 @@
     <string name="position_chapter">chapter %1$d</string>
     <string name="chapter_label">Chapter</string>
     <string name="chapter_value">Chapter: %1$d</string>
+    <string name="select_backend">Open with</string>
+    <string name="backend_plain_text">Plain text</string>
+    <string name="backend_epub">EPUB: text with images, by chapter</string>
+    <string name="backend_pdf">PDF: each page as an image</string>
 </resources>
