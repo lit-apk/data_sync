@@ -17,14 +17,14 @@
     <string name="settings_saved">设置已保存</string>
     <string name="no_active_transfer">没有活动的传输</string>
     <string name="no_unsent_content">没有未发送的内容</string>
-    <string name="sent_complete">已发送至字符 %1$d；完成</string>
-    <string name="sent_next">已发送至字符 %1$d；请在手表上点按“下一段”</string>
+    <string name="sent_complete">已发送至%1$s；完成</string>
+    <string name="sent_next">已发送至%1$s；请在手表上点按“下一段”</string>
     <string name="send_content_failed">无法发送阅读内容：%1$s</string>
     <string name="first_page">已在第一页</string>
-    <string name="sent_from">已从字符 %1$d 开始发送</string>
+    <string name="sent_from">已从%1$s开始发送</string>
     <string name="previous_unsupported">不支持上一页</string>
     <string name="notify_failed">通知手表失败：%1$s</string>
-    <string name="sending_from">正从字符 %1$d 开始发送</string>
+    <string name="sending_from">正从%1$s开始发送</string>
     <string name="preparing_epub">正在准备 EPUB…</string>
     <string name="preparing_chapter">正在准备章节…</string>
     <string name="open_failed">打开失败：%1$s</string>
@@ -75,7 +75,7 @@
     <string name="image_reduce_range">图片缩小比例必须为 1 到 100</string>
     <string name="character_offset">字符位置：%1$d</string>
     <string name="character_offset_label">字符位置</string>
-    <string name="offset_invalid">字符位置必须为自然数</string>
+    <string name="offset_invalid">位置必须为自然数（页码从 1 开始）</string>
     <string name="history_saved">历史已保存</string>
     <string name="history_save_failed">保存历史失败：%1$s</string>
     <string name="reading_history">阅读历史</string>
@@ -88,4 +88,8 @@
     <string name="backup_name">备份名称</string>
     <string name="choose_path">选择路径</string>
     <string name="internal_backup">内部备份</string>
+    <string name="position_character">字符 %1$d</string>
+    <string name="position_page">第 %1$d 页</string>
+    <string name="page_label">页码</string>
+    <string name="page_value">页码：%1$d</string>
 </resources>

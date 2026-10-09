@@ -17,14 +17,14 @@
     <string name="settings_saved">Settings saved</string>
     <string name="no_active_transfer">No active transfer</string>
     <string name="no_unsent_content">No unsent content</string>
-    <string name="sent_complete">Sent through character %1$d; complete</string>
-    <string name="sent_next">Sent through character %1$d; tap Next on watch</string>
+    <string name="sent_complete">Sent through %1$s; complete</string>
+    <string name="sent_next">Sent through %1$s; tap Next on watch</string>
     <string name="send_content_failed">Unable to send reading content: %1$s</string>
     <string name="first_page">Already at the first page</string>
-    <string name="sent_from">Sent from character %1$d</string>
+    <string name="sent_from">Sent from %1$s</string>
     <string name="previous_unsupported">Previous page is not supported</string>
     <string name="notify_failed">Notify watch failed: %1$s</string>
-    <string name="sending_from">Sending from character %1$d</string>
+    <string name="sending_from">Sending from %1$s</string>
     <string name="preparing_epub">Preparing EPUB…</string>
     <string name="preparing_chapter">Preparing chapter…</string>
     <string name="open_failed">Open failed: %1$s</string>
@@ -75,7 +75,7 @@
     <string name="image_reduce_range">Image reduce factor must be 1 to 100 percent</string>
     <string name="character_offset">Character offset: %1$d</string>
     <string name="character_offset_label">Character offset</string>
-    <string name="offset_invalid">Offset must be a natural number</string>
+    <string name="offset_invalid">Position must be a natural number (pages start at 1)</string>
     <string name="history_saved">History saved</string>
     <string name="history_save_failed">History save failed: %1$s</string>
     <string name="reading_history">Reading history</string>
@@ -88,4 +88,8 @@
     <string name="backup_name">Backup name</string>
     <string name="choose_path">Choose path</string>
     <string name="internal_backup">Internal backup</string>
+    <string name="position_character">character %1$d</string>
+    <string name="position_page">page %1$d</string>
+    <string name="page_label">Page</string>
+    <string name="page_value">Page: %1$d</string>
 </resources>

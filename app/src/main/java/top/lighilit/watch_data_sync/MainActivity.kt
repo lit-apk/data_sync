@@ -133,6 +133,13 @@ private fun DataSyncScreen() {
         }
     }
 
+    fun positionText(reader: Reader, offset: Int, through: Boolean = false): String {
+        val (phrase, value) = reader.describe(offset, through)
+        return resources.getString(phrase, value)
+    }
+
+    fun chunkSize() = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
+
     fun handleSentPart(reader: Reader, part: FileTransfer.Part, result: String) {
         if (result == "sent") {
             reader.markSent()
@@ -140,11 +147,8 @@ private fun DataSyncScreen() {
                 historyStore.updatePosition(it, part.startOffset, activeChapter.value, historyLimit())
                 history = historyStore.load()
             }
-            status = if (reader.isComplete) {
-                resources.getString(R.string.sent_complete, reader.currentOffset)
-            } else {
-                resources.getString(R.string.sent_next, reader.currentOffset)
-            }
+            val position = positionText(reader, reader.currentOffset, through = true)
+            status = resources.getString(if (reader.isComplete) R.string.sent_complete else R.string.sent_next, position)
         } else {
             status = result
             if (remoteHistoryRequest.value) {
@@ -278,7 +282,7 @@ private fun DataSyncScreen() {
                             historyStore.updatePosition(it, part.startOffset, activeChapter.value, historyLimit())
                             history = historyStore.load()
                         }
-                        status = resources.getString(R.string.sent_from, part.startOffset)
+                        status = resources.getString(R.string.sent_from, positionText(reader, part.startOffset))
                     } else {
                         status = result
                     }
@@ -304,7 +308,11 @@ private fun DataSyncScreen() {
         activeHistoryId.value = historyId
         activeChapter.value = chapter
         selectedLabel = label
-        status = resources.getString(R.string.sending_from, if (length == null) offset else offset.coerceIn(0, length))
+        val reader = readerState.value ?: return
+        status = resources.getString(
+            R.string.sending_from,
+            positionText(reader, if (length == null) offset else offset.coerceIn(0, length))
+        )
         sendNextPart()
     }
 
@@ -549,19 +557,22 @@ private fun DataSyncScreen() {
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(stringResource(R.string.send_file)) }
                         selectedLabel?.let { Text(stringResource(R.string.active_document, it)) }
-                        readerState.value?.let { Text(stringResource(R.string.character_offset, it.currentOffset)) }
+                        readerState.value?.let {
+                            Text(stringResource(it.positionUnit.value, it.positionUnit.display(it.currentOffset, chunkSize())))
+                        }
                         HistoryView(
                             history = history,
                             editMode = historyEditMode,
                             editingId = editingId,
                             editOffset = editOffset,
+                            chunkSize = chunkSize(),
                             editName = editName,
                             editSource = editSource,
                             editBackup = editBackup,
                             onEntryClick =(::resume),
                             onEdit = { entry ->
                                 editingId = entry.id
-                                editOffset = entry.offset.toString()
+                                editOffset = DocumentFormats.positionUnit(entry.name).display(entry.offset, chunkSize()).toString()
                                 editChapter = entry.chapter
                                 editName = entry.name
                                 editSource = entry.source
@@ -579,7 +590,8 @@ private fun DataSyncScreen() {
                                         historyEditMode = false
                                     } else {
                                         val offset = editOffset.toIntOrNull()
-                                        if (offset == null || offset < 0) {
+                                            ?.let { DocumentFormats.positionUnit(entry.name).toOffset(it, chunkSize()) }
+                                        if (offset == null) {
                                             status = resources.getString(R.string.offset_invalid)
                                         } else runCatching {
                                             val selectedOffset = editChapters.getOrNull(editChapter)?.startOffset ?: offset
@@ -622,6 +634,7 @@ private fun HistoryView(
     editMode: Boolean,
     editingId: String?,
     editOffset: String,
+    chunkSize: Int,
     editChapter: Int,
     editChapters: List<TextChapter>,
     editChapterExpanded: Boolean,
@@ -680,7 +693,7 @@ private fun HistoryView(
                             }
                         }
                     } else {
-                        NumberField(stringResource(R.string.character_offset_label), editOffset, onOffsetChange)
+                        NumberField(stringResource(DocumentFormats.positionUnit(entry.name).label), editOffset, onOffsetChange)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(stringResource(R.string.backup_in_app))
@@ -708,7 +721,8 @@ private fun HistoryView(
                         Text(stringResource(R.string.delete))
                     }
                 } else {
-                    Text(stringResource(R.string.character_offset, entry.offset))
+                    val unit = DocumentFormats.positionUnit(entry.name)
+                    Text(stringResource(unit.value, unit.display(entry.offset, chunkSize)))
                     Text(
                         if (entry.backedUp) stringResource(R.string.internal_backup) else entry.source,
                         maxLines = 1,

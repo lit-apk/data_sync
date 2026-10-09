@@ -2,7 +2,7 @@ package top.lighilit.watch_data_sync
 
 internal class FileTransfer(
     private val source: TextSource,
-    private val chunkSize: Int = DEFAULT_CHUNK_SIZE,
+    val chunkSize: Int = DEFAULT_CHUNK_SIZE,
     startOffset: Int = 0,
     private var complete: Boolean = false
 ) {

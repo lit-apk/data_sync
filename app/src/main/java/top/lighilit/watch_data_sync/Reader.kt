@@ -7,6 +7,16 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
     var skipImages: Boolean = true
         private set
 
+    /** From the document backend; see [DocumentFormat.positionUnit]. */
+    var positionUnit: PositionUnit = PositionUnit.CHARACTER
+        private set
+
+    /** Phrase for a position, e.g. "character 300" or "page 3". */
+    fun describe(offset: Int, through: Boolean = false): Pair<Int, Int> {
+        val value = if (through) positionUnit.through(offset, transfer.chunkSize) else positionUnit.display(offset, transfer.chunkSize)
+        return positionUnit.phrase to value
+    }
+
     val currentOffset: Int
         get() = transfer.currentOffset
 
@@ -43,6 +53,7 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
                 PlainTextReader(transfer)
             }
             reader.skipImages = DocumentFormats.skipsImages(name)
+            reader.positionUnit = DocumentFormats.positionUnit(name)
             return reader
         }
     }

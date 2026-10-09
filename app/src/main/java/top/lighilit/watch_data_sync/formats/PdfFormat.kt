@@ -20,6 +20,9 @@ internal class PdfFormat : DocumentFormat {
     /** Every page is content; never offer to skip images. */
     override val skipImages = false
 
+    /** Offsets are `pageIndex * chunkSize`; show them as page numbers. */
+    override val positionUnit = PositionUnit.PAGE
+
     override fun matches(name: String) = name.substringAfterLast('.', "").equals("pdf", true)
 
     override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?): TextSource =

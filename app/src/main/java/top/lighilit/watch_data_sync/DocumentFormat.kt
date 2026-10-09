@@ -26,6 +26,9 @@ internal interface DocumentFormat {
      * return false, since the images are the content.
      */
     val skipImages: Boolean get() = true
+
+    /** How reading positions are shown and entered; see [PositionUnit]. */
+    val positionUnit: PositionUnit get() = PositionUnit.CHARACTER
 }
 
 internal object DocumentFormats {
@@ -39,4 +42,5 @@ internal object DocumentFormats {
     fun isRichText(name: String) = forName(name).richText
     fun isChaptered(name: String) = forName(name).chaptered
     fun skipsImages(name: String) = forName(name).skipImages
+    fun positionUnit(name: String) = forName(name).positionUnit
 }
