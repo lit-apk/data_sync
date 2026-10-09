@@ -100,4 +100,6 @@
     <string name="backend_epub">EPUB：按章节显示文字和图片</string>
     <string name="backend_pdf">PDF：每页显示为一张图片</string>
     <string name="backend_pdf_rich">PDF：逐页显示文字和图片</string>
+    <string name="backend_cbz">漫画：每页一张图片</string>
+    <string name="backend_fb2">FictionBook：按章节显示文字和图片</string>
 </resources>

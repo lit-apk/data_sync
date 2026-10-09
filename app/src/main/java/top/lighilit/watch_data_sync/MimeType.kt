@@ -14,7 +14,9 @@ enum class MimeType(val value: String, private val extensions: List<String>, val
     TEXT("text/plain", listOf("txt", "md", "log", "csv"), pickerType = "text/*"),
     JSON("application/json", listOf("json")),
     EPUB("application/epub+zip", listOf("epub")),
-    PDF("application/pdf", listOf("pdf"));
+    PDF("application/pdf", listOf("pdf")),
+    CBZ("application/vnd.comicbook+zip", listOf("cbz")),
+    FB2("application/x-fictionbook+xml", listOf("fb2"));
 
     companion object {
         /** By file extension; unknown extensions are read as plain text. */

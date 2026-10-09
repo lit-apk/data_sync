@@ -100,4 +100,6 @@
     <string name="backend_epub">EPUB: text with images, by chapter</string>
     <string name="backend_pdf">PDF: each page as an image</string>
     <string name="backend_pdf_rich">PDF: text and images, page by page</string>
+    <string name="backend_cbz">Comic: one image per page</string>
+    <string name="backend_fb2">FictionBook: text and images, by chapter</string>
 </resources>
