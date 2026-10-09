@@ -8,7 +8,7 @@ internal const val DEFAULT_CACHE_SIZE_MB = 32
 internal const val IMAGE_SIZE_KEY = "image_size_kb"
 internal const val IMAGE_REDUCE_KEY = "image_reduce_percent"
 internal const val DEFAULT_IMAGE_SIZE_KB = 2048
-internal const val DEFAULT_IMAGE_REDUCE_PERCENT = 25
+internal const val DEFAULT_IMAGE_REDUCE_PERCENT = 50
 
 internal fun documentCache(context: Context): DocumentCache {
     val size = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)

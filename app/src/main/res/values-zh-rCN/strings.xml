@@ -69,7 +69,7 @@
     <string name="protocol_failed">协议协商失败：%1$s</string>
     <string name="cache_size">缓存大小 (MB)</string>
     <string name="image_size">图片大小限制 (KB)</string>
-    <string name="image_reduce">图片缩小比例 (%%)</string>
+    <string name="image_reduce">图片缩小比例 (%)</string>
     <string name="cache_size_range">缓存大小必须为 1 到 512 MB</string>
     <string name="image_size_positive">图片大小必须为正数</string>
     <string name="image_reduce_range">图片缩小比例必须为 1 到 100</string>

@@ -69,7 +69,7 @@
     <string name="protocol_failed">Protocol negotiation failed: %1$s</string>
     <string name="cache_size">Cache size (MB)</string>
     <string name="image_size">Image size limit (KB)</string>
-    <string name="image_reduce">Image reduce factor (%%)</string>
+    <string name="image_reduce">Image reduce factor (%)</string>
     <string name="cache_size_range">Cache size must be 1 to 512 MB</string>
     <string name="image_size_positive">Image size must be positive</string>
     <string name="image_reduce_range">Image reduce factor must be 1 to 100 percent</string>
