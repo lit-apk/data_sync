@@ -12,8 +12,8 @@
     <string name="settings_modified">Settings have been modified.</string>
     <string name="save">Save</string>
     <string name="discard">Discard</string>
-    <string name="message_size_range">Message size must be 1 to 10000</string>
-    <string name="history_count_range">History count must be 1 to 100</string>
+    <string name="message_size_range">Message size must be 1 to %1$d</string>
+    <string name="history_count_range">History count must be 1 to %1$d</string>
     <string name="settings_saved">Settings saved</string>
     <string name="no_active_transfer">No active transfer</string>
     <string name="no_unsent_content">No unsent content</string>
@@ -70,7 +70,7 @@
     <string name="cache_size">Cache size (MB)</string>
     <string name="image_size">Image size limit (KB)</string>
     <string name="image_reduce">Image reduce factor (%)</string>
-    <string name="cache_size_range">Cache size must be 1 to 512 MB</string>
+    <string name="cache_size_range">Cache size must be 1 to %1$d MB</string>
     <string name="image_size_positive">Image size must be positive</string>
     <string name="image_reduce_range">Image reduce factor must be 1 to 100 percent</string>
     <string name="character_offset">Character offset: %1$d</string>

@@ -45,6 +45,11 @@ internal const val PREFERENCES = "data_sync_settings"
 internal const val CHUNK_SIZE_KEY = "chunk_size"
 internal const val HISTORY_LIMIT_KEY = "history_limit"
 internal const val BACKUP_ON_SEND_KEY = "backup_on_send"
+internal const val MAX_CHUNK_SIZE = 10_000
+internal const val MAX_HISTORY_LIMIT = 100
+internal const val MAX_CACHE_SIZE_MB = 512
+internal const val MAX_IMAGE_SIZE_KB = 10240
+internal const val MAX_IMAGE_REDUCE_PERCENT = 100
 
 class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,23 +107,23 @@ private fun SettingsScreen(onBack: () -> Unit) {
         val cacheSizeValue = cacheSize.toIntOrNull()
         val imageSizeValue = imageSize.toIntOrNull()
         val imageReduceValue = imageReduce.toIntOrNull()
-        if (chunkSize == null || chunkSize !in 1..10_000) {
-            status = resources.getString(R.string.message_size_range)
+        if (chunkSize == null || chunkSize !in 1..MAX_CHUNK_SIZE) {
+            status = resources.getString(R.string.message_size_range, MAX_CHUNK_SIZE)
             return false
         }
-        if (limit == null || limit !in 1..100) {
-            status = resources.getString(R.string.history_count_range)
+        if (limit == null || limit !in 1..MAX_HISTORY_LIMIT) {
+            status = resources.getString(R.string.history_count_range, MAX_HISTORY_LIMIT)
             return false
         }
-        if (cacheSizeValue == null || cacheSizeValue !in 1..512) {
-            status = resources.getString(R.string.cache_size_range)
+        if (cacheSizeValue == null || cacheSizeValue !in 1..MAX_CACHE_SIZE_MB) {
+            status = resources.getString(R.string.cache_size_range, MAX_CACHE_SIZE_MB)
             return false
         }
-        if (imageSizeValue == null || imageSizeValue !in 1..10240) {
+        if (imageSizeValue == null || imageSizeValue !in 1..MAX_IMAGE_SIZE_KB) {
             status = resources.getString(R.string.image_size_positive)
             return false
         }
-        if (imageReduceValue == null || imageReduceValue !in 1..100) {
+        if (imageReduceValue == null || imageReduceValue !in 1..MAX_IMAGE_REDUCE_PERCENT) {
             status = resources.getString(R.string.image_reduce_range)
             return false
         }
