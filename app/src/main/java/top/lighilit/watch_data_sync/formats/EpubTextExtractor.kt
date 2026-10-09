@@ -30,12 +30,6 @@ internal object EpubTextExtractor : DocumentFormat {
     override fun source(file: File, name: String, context: Context?): TextSource =
         EpubTextSource({ file.inputStream() }, EpubArchive({ file.inputStream() }, file))
     override fun readText(input: InputStream, name: String) = extract(input)
-    override fun preserveOriginalOnBackup() = true
-    override fun copyToBackup(context: Context, uri: Uri, target: File, name: String) {
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            target.outputStream().use { output -> input.copyTo(output) }
-        } ?: error("Unable to open $name")
-    }
 
     fun source(openStream: () -> InputStream): TextSource = EpubTextSource(openStream)
 

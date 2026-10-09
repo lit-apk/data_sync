@@ -47,7 +47,7 @@ internal class ReadingHistoryStore(private val context: Context) {
     fun addUri(uri: Uri, name: String, backup: Boolean, limit: Int): ReadingHistory {
         val entry = if (backup) {
             val file = uniqueBackupFile(name)
-            DocumentFormats.forName(name).copyToBackup(context, uri, file, name)
+            copyToBackup(uri, file, name)
             ReadingHistory(UUID.randomUUID().toString(), file.name, file.absolutePath, true, 0)
         } else {
             ReadingHistory(UUID.randomUUID().toString(), name, uri.toString(), false, 0)
@@ -133,7 +133,7 @@ internal class ReadingHistoryStore(private val context: Context) {
             }
             backup -> {
                 val target = uniqueBackupFile(newName)
-                DocumentFormats.forName(newName).copyToBackup(context, Uri.parse(newSource), target, newName)
+                copyToBackup(Uri.parse(newSource), target, newName)
                 entry.copy(name = target.name, source = target.absolutePath, backedUp = true)
             }
             else -> {
@@ -199,5 +199,12 @@ internal class ReadingHistoryStore(private val context: Context) {
             suffix++
         }
         return candidate
+    }
+
+    /** Backups are byte-exact copies for every format; readers decode them like the original. */
+    private fun copyToBackup(uri: Uri, target: File, name: String) {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        } ?: error("Unable to open $name")
     }
 }

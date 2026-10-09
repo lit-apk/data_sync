@@ -15,9 +15,7 @@ internal interface DocumentFormat {
     fun matches(name: String): Boolean
     fun source(context: Context, uri: Uri, name: String, cache: DocumentCache? = null): TextSource
     fun source(file: File, name: String, context: Context? = null): TextSource
-    fun copyToBackup(context: Context, uri: Uri, target: File, name: String)
     fun readText(input: InputStream, name: String): String
-    fun preserveOriginalOnBackup(): Boolean = false
     val fallback: Boolean get() = false
 
     /**

@@ -34,13 +34,7 @@ internal class PdfFormat : DocumentFormat {
     override fun readText(input: InputStream, name: String): String =
         error("PDF pages are rendered as images and have no text")
 
-    override fun preserveOriginalOnBackup() = true
 
-    override fun copyToBackup(context: Context, uri: Uri, target: File, name: String) {
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            target.outputStream().use { output -> input.copyTo(output) }
-        } ?: error("Unable to open $name")
-    }
 }
 
 /**

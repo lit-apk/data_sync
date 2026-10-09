@@ -17,9 +17,4 @@ internal class PlainTextFormat : DocumentFormat {
     }
     override fun source(file: File, name: String, context: Context?) = PlainTextSource { file.inputStream() }
     override fun readText(input: InputStream, name: String) = input.bufferedReader().readText()
-    override fun copyToBackup(context: Context, uri: Uri, target: File, name: String) {
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            target.writeText(input.bufferedReader().use { it.readText() })
-        } ?: error("Unable to open $name")
-    }
 }
