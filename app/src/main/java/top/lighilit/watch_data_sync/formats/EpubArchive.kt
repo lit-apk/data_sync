@@ -1,58 +1,34 @@
 package top.lighilit.watch_data_sync
 
+import android.os.ParcelFileDescriptor
 import java.io.File
-import java.io.InputStream
+import java.io.FileInputStream
 import java.security.MessageDigest
-import java.util.zip.ZipFile
-import java.util.zip.ZipInputStream
 
-internal class EpubArchive(
-    private val openStream: () -> InputStream,
-    private val localFile: File? = null,
-    private val cache: DocumentCache? = null
-) {
-    fun entryBytes(path: String): ByteArray? {
-        val target = EpubTextExtractor.normalizeForSource(path)
-        localFile?.let { file ->
-            ZipFile(file).use { zip ->
-                return zip.getEntry(target)?.let { zip.getInputStream(it).readBytes() }
-            }
-        }
-        cache?.get(target)?.let { return it }
-        val bytes = openStream().use { input ->
-            ZipInputStream(input).use { zip ->
-                var entry = zip.nextEntry
-                while (entry != null) {
-                    if (EpubTextExtractor.normalizeForSource(entry.name) == target) return@use zip.readBytes()
-                    entry = zip.nextEntry
-                }
-                null
-            }
-        }
-        if (bytes != null) cache?.put(target, bytes)
-        return bytes
+/**
+ * Random access to an EPUB's entries. The file is opened once as a seekable descriptor;
+ * its ZIP index is read once and every entry is read by seeking straight to it
+ * ([SeekableZip]), never by copying, reopening or rescanning the archive.
+ */
+internal class EpubArchive(private val openDescriptor: () -> ParcelFileDescriptor) {
+    private val zip: SeekableZip by lazy {
+        val descriptor = openDescriptor()
+        SeekableZip(FileInputStream(descriptor.fileDescriptor).channel, descriptor)
+    }
+
+    private val byPath: Map<String, SeekableZip.Entry> by lazy {
+        zip.entries.associateBy { EpubTextExtractor.normalizeForSource(it.name) }
+    }
+
+    fun entryBytes(path: String): ByteArray? = synchronized(this) {
+        byPath[EpubTextExtractor.normalizeForSource(path)]?.let(zip::read)
     }
 
     fun entryText(path: String): String? = entryBytes(path)?.toString(Charsets.UTF_8)
 
-    fun firstEntryEnding(suffix: String): Pair<String, String>? {
-        localFile?.let { file ->
-            ZipFile(file).use { zip ->
-                val entry = zip.entries().asSequence().firstOrNull { it.name.endsWith(suffix, true) }
-                    ?: return null
-                return entry.name to zip.getInputStream(entry).readBytes().toString(Charsets.UTF_8)
-            }
-        }
-        openStream().use { input ->
-            ZipInputStream(input).use { zip ->
-                var entry = zip.nextEntry
-                while (entry != null) {
-                    if (entry.name.endsWith(suffix, true)) return entry.name to zip.readBytes().toString(Charsets.UTF_8)
-                    entry = zip.nextEntry
-                }
-            }
-        }
-        return null
+    fun firstEntryEnding(suffix: String): Pair<String, String>? = synchronized(this) {
+        val entry = zip.entries.firstOrNull { it.name.endsWith(suffix, true) } ?: return null
+        entry.name to zip.read(entry).toString(Charsets.UTF_8)
     }
 }
 

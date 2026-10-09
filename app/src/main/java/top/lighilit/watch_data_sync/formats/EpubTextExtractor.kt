@@ -2,6 +2,7 @@ package top.lighilit.watch_data_sync
 
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
@@ -20,14 +21,13 @@ internal object EpubTextExtractor : DocumentFormat {
     /** Offsets are local to the current chapter; show the chapter number instead. */
     override val positionUnit = PositionUnit.CHAPTER
     override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?): TextSource {
-        val archive = EpubArchive(
-            { context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") },
-            cache = cache
-        )
+        // One seekable open for all entry reads; the stream is only a fallback for readers
+        // without an archive (e.g. tests).
+        val archive = EpubArchive { context.contentResolver.openFileDescriptor(uri, "r") ?: error("Unable to open $name") }
         return EpubTextSource({ context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") }, archive)
     }
     override fun source(file: File, name: String, context: Context?): TextSource =
-        EpubTextSource({ file.inputStream() }, EpubArchive({ file.inputStream() }, file))
+        EpubTextSource({ file.inputStream() }, EpubArchive { ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) })
     override fun readText(input: InputStream, name: String) = extract(input)
 
     fun source(openStream: () -> InputStream): TextSource = EpubTextSource(openStream)
@@ -306,7 +306,7 @@ private class EpubTextSource(
 
         val epub = metadata
         val paths = chapterPath?.let { listOf(it) } ?: epub.paths
-        EpubTextReader(openStream, paths).use { reader ->
+        EpubTextReader(openStream, paths, archive).use { reader ->
                 skipChars(reader, startOffset)
                 val buffer = CharArray(maxChars + 1)
                 val count = readUpTo(reader, buffer)
@@ -461,7 +461,8 @@ private class EpubTextSource(
 
 private class EpubTextReader(
     private val openStream: () -> InputStream,
-    private val paths: List<String>
+    private val paths: List<String>,
+    private val archive: EpubArchive? = null
 ) : Reader() {
     private var chapterIndex = 0
     private var chapterReader: Reader? = null
@@ -567,6 +568,11 @@ private class EpubTextReader(
         chapterReader = null
         while (chapterIndex < paths.size) {
             val target = paths[chapterIndex++]
+            // With an archive, seek straight to the chapter instead of rescanning the ZIP.
+            if (archive != null) {
+                val bytes = archive.entryBytes(target) ?: continue
+                return InputStreamReader(ByteArrayInputStream(bytes), Charsets.UTF_8)
+            }
             val zip = ZipInputStream(openStream())
             var entry = zip.nextEntry
             while (entry != null) {

@@ -1,19 +1,24 @@
 package top.lighilit.watch_data_sync
 
-internal class PreviousPageNotSupportedException(message: String) : RuntimeException(message)
+/**
+ * Pages through one document (or one chapter). Every backend reads parts by offset with
+ * random access (seekable ZIP, loaded PDF/FB2), so going back is supported for all.
+ */
+internal class Reader(
+    source: TextSource,
+    format: DocumentFormat,
+    chunkSize: Int,
+    offset: Int,
+    /** 0-based chapter this reader covers (chaptered formats only). */
+    val chapter: Int = 0
+) {
+    private val transfer = FileTransfer(if (format.chaptered) source.chapterSource(chapter) else source, chunkSize, offset)
 
-internal abstract class Reader(protected val transfer: FileTransfer) {
     /** From the document backend; see [DocumentFormat.skipImages]. */
-    var skipImages: Boolean = true
-        private set
+    val skipImages: Boolean = format.skipImages
 
     /** From the document backend; see [DocumentFormat.positionUnit]. */
-    var positionUnit: PositionUnit = PositionUnit.CHARACTER
-        private set
-
-    /** 0-based chapter this reader covers (chaptered formats only). */
-    var chapter: Int = 0
-        private set
+    val positionUnit: PositionUnit = format.positionUnit
 
     /** Phrase for a position, e.g. "character 300", "page 3" or "chapter 2". */
     fun describe(offset: Int, through: Boolean = false): Pair<Int, Int> {
@@ -45,35 +50,6 @@ internal abstract class Reader(protected val transfer: FileTransfer) {
 
     fun markPreviousSent() = transfer.markPreviousSent()
 
-    abstract fun previousPart(): FileTransfer.Part?
+    fun previousPart(): FileTransfer.Part? = transfer.previousPart()
 
-    companion object {
-        fun of(source: TextSource, format: DocumentFormat, chunkSize: Int, offset: Int, chapter: Int = 0): Reader {
-            val transferSource = if (format.chaptered) {
-                source.chapterSource(chapter)
-            } else {
-                source
-            }
-            val transfer = FileTransfer(transferSource, chunkSize, offset)
-            val reader = if (format.richText) {
-                RichTextReader(transfer)
-            } else {
-                PlainTextReader(transfer)
-            }
-            reader.skipImages = format.skipImages
-            reader.positionUnit = format.positionUnit
-            reader.chapter = chapter
-            return reader
-        }
-    }
 }
-
-internal open class PlainTextReader(transfer: FileTransfer) : Reader(transfer) {
-    override fun previousPart(): FileTransfer.Part? = transfer.previousPart()
-}
-
-internal open class RichTextReader(transfer: FileTransfer) : Reader(transfer) {
-    override fun previousPart(): FileTransfer.Part? =
-        throw PreviousPageNotSupportedException("Previous page is not supported for this content")
-}
-

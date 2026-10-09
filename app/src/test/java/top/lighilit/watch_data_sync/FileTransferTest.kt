@@ -169,4 +169,18 @@ class FileTransferTest {
         assertEquals(FileTransfer.Part("gh", 6, 8), transfer.pendingPart())
     }
 
+
+    @Test
+    fun previousReturnsToImageOnlyPages() {
+        // Pages: "abc"+img0, "d"+img1, img2, img3.
+        val transfer = FileTransfer(imageSource("abcd", 4), chunkSize = 3)
+        repeat(4) { transfer.pendingPart(); transfer.markSent() }
+
+        val back = transfer.previousPart()!!
+        assertEquals(FileTransfer.Part("", 6, 9), back)
+        transfer.markPreviousSent()
+        assertEquals("img-2", transfer.imagesAt(back.startOffset).single().id)
+        // Forward again resends the last image-only page, not past the end.
+        assertEquals(9, transfer.pendingPart()!!.startOffset)
+    }
 }

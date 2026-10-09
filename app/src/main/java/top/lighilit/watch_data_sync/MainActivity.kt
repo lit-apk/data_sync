@@ -177,11 +177,19 @@ private fun DataSyncScreen() {
         }
     }
 
-    fun sendPage(reader: Reader, part: FileTransfer.Part, images: List<ReadingImage>) {
+    /**
+     * Sends [part] with its [images]; [onResult] gets "sent" or an error. [offerSkip] is
+     * only true for forward paging (the skip button looks at the parts after this one).
+     */
+    fun sendPage(
+        reader: Reader,
+        part: FileTransfer.Part,
+        images: List<ReadingImage>,
+        offerSkip: Boolean,
+        onResult: (String) -> Unit
+    ) {
         if (images.isEmpty()) {
-            controller.sendText(part.text) { result ->
-                handleSentPart(reader, part, result)
-            }
+            controller.sendText(part.text, onResult)
             return
         }
         // Content keys name the image files on the watch: a different picture always gets a
@@ -200,10 +208,8 @@ private fun DataSyncScreen() {
                 }
                 page.put(JSONObject().put("type", "text").put("content", part.text))
                 // Page ends with an image and more image-only pages follow: let the watch skip them.
-                val skipImages = reader.skipImages && part.text.isEmpty() && reader.nextIsImageOnly()
-                controller.sendJson(JSONObject().put("type", "page").put("items", page).put("skipImages", skipImages)) { result ->
-                    handleSentPart(reader, part, result)
-                }
+                val skipImages = offerSkip && reader.skipImages && part.text.isEmpty() && reader.nextIsImageOnly()
+                controller.sendJson(JSONObject().put("type", "page").put("items", page).put("skipImages", skipImages), onResult)
                 return
             }
             val image = images[imageIndex]
@@ -219,15 +225,34 @@ private fun DataSyncScreen() {
                     if (result == "sent") {
                         sendChunk(end)
                     } else {
-                        controller.sendText(part.text) { fallback ->
-                            handleSentPart(reader, part, fallback)
-                        }
+                        controller.sendText(part.text, onResult)
                     }
                 }
             }
             sendChunk(0)
         }
         sendImage(0)
+    }
+
+    /** Prepares [part]'s images off the main thread, then sends the page (forward or back). */
+    fun sendPart(reader: Reader, part: FileTransfer.Part, offerSkip: Boolean, onResult: (String) -> Unit) {
+        val display = watchDisplay.value
+        val maxImageBytes = imageLimitBytes(context)
+        val reducePercent = imageReducePercent(context)
+        // Image extraction and re-encoding are slow; keep them off the main thread.
+        ioExecutor.execute {
+            val prepared = runCatching {
+                reader.imagesAt(part.startOffset).map { image ->
+                    WatchImageEncoder.encode(image, display, maxImageBytes, reducePercent) ?: image.copy(bytes = ByteArray(0))
+                }
+            }
+            mainHandler.post {
+                prepared.onFailure {
+                    errorTrace = CrashReporter.format("Preparing page images", it)
+                    controller.sendText(part.text, onResult)
+                }.onSuccess { images -> sendPage(reader, part, images, offerSkip, onResult) }
+            }
+        }
     }
 
     fun sendNextPart() {
@@ -256,7 +281,7 @@ private fun DataSyncScreen() {
                             return@onSuccess
                         }
                         val chunkSize = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
-                        readerState.value = Reader.of(source, activeFormat.value ?: DocumentFormats.forName(selectedLabel.orEmpty()), chunkSize, 0, chapter.index)
+                        readerState.value = Reader(source, activeFormat.value ?: DocumentFormats.forName(selectedLabel.orEmpty()), chunkSize, 0, chapter.index)
                         activeChapter.value = chapter.index
                         sendNextPart()
                     }
@@ -264,23 +289,7 @@ private fun DataSyncScreen() {
             }
             return
         }
-        val display = watchDisplay.value
-        val maxImageBytes = imageLimitBytes(context)
-        val reducePercent = imageReducePercent(context)
-        // Image extraction and re-encoding are slow; keep them off the main thread.
-        ioExecutor.execute {
-            val prepared = runCatching {
-                reader.imagesAt(part.startOffset).map { image ->
-                    WatchImageEncoder.encode(image, display, maxImageBytes, reducePercent) ?: image.copy(bytes = ByteArray(0))
-                }
-            }
-            mainHandler.post {
-                prepared.onFailure {
-                    errorTrace = CrashReporter.format("Preparing page images", it)
-                    controller.sendText(part.text) { result -> handleSentPart(reader, part, result) }
-                }.onSuccess { images -> sendPage(reader, part, images) }
-            }
-        }
+        sendPart(reader, part, offerSkip = true) { result -> handleSentPart(reader, part, result) }
     }
 
     fun sendPreviousPart() {
@@ -294,7 +303,8 @@ private fun DataSyncScreen() {
                     status = resources.getString(R.string.first_page)
                     return@onSuccess
                 }
-                controller.sendText(part.text) { result ->
+                // Same path as forward paging, so a previous page keeps its images.
+                sendPart(reader, part, offerSkip = false) { result ->
                     if (result == "sent") {
                         reader.markPreviousSent()
                         activeHistoryId.value?.let {
@@ -308,15 +318,7 @@ private fun DataSyncScreen() {
                 }
             }
             .onFailure { error ->
-                val message = error.message ?: resources.getString(R.string.previous_unsupported)
-                status = message
-                if (error is PreviousPageNotSupportedException) {
-                    controller.sendJson(
-                        JSONObject().put("type", "not_supported").put("message", message)
-                    ) { result ->
-                        if (result != "sent") status = resources.getString(R.string.notify_failed, result)
-                    }
-                }
+                status = resources.getString(R.string.open_failed, error.message)
             }
     }
 
@@ -330,7 +332,7 @@ private fun DataSyncScreen() {
         chapter: Int = 0
     ) {
         val chunkSize = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
-        readerState.value = Reader.of(source, format, chunkSize, offset, chapter)
+        readerState.value = Reader(source, format, chunkSize, offset, chapter)
         activeFormat.value = format
         activeSource.value = source
         activeHistoryId.value = historyId

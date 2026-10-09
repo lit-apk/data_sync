@@ -70,10 +70,13 @@ internal class FileTransfer(
     fun previousPart(): Part? {
         if (sentStarts.size < 2) return null
         val previousStart = sentStarts[sentStarts.size - 2]
-        val sourcePart = source.readPart(previousStart, chunkSize) ?: return null
-        pendingPreviousEnd = sourcePart.endOffset
-        pendingPreviousComplete = sourcePart.endOfSource
-        return Part(sourcePart.text, previousStart, sourcePart.endOffset)
+        // That part ended where the current one started (true for text and image-only parts).
+        val previousEnd = sentStarts.last()
+        val sourcePart = source.readPart(previousStart, chunkSize)
+        pendingPreviousEnd = previousEnd
+        pendingPreviousComplete = false
+        // Image-only parts (text exhausted, images remain) have no text to re-read.
+        return Part(sourcePart?.text.orEmpty(), previousStart, previousEnd)
     }
 
     fun markPreviousSent() {
