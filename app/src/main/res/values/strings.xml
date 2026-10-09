@@ -102,4 +102,5 @@
     <string name="backend_pdf_rich">PDF: text and images, page by page</string>
     <string name="backend_cbz">Comic: one image per page</string>
     <string name="backend_fb2">FictionBook: text and images, by chapter</string>
+    <string name="failed_open_local_file">Failed to open %1$s, maybe not a local file?</string>
 </resources>

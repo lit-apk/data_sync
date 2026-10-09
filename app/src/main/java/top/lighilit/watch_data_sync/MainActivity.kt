@@ -146,6 +146,12 @@ private fun DataSyncScreen() {
         return resources.getString(phrase, value)
     }
 
+    /** User-facing text for a failure; known cases are translated instead of raw messages. */
+    fun errorText(error: Throwable): String = when (error) {
+        is OpenLocalFileException -> resources.getString(R.string.failed_open_local_file, error.name)
+        else -> error.message ?: error.javaClass.simpleName
+    }
+
     fun chunkSize() = preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE)
 
     /**
@@ -274,7 +280,7 @@ private fun DataSyncScreen() {
                 mainHandler.post {
                     next.onFailure {
                         errorTrace = CrashReporter.format("Opening next chapter", it)
-                        status = resources.getString(R.string.next_chapter_failed, it.message)
+                        status = resources.getString(R.string.next_chapter_failed, errorText(it))
                     }.onSuccess { chapter ->
                         if (chapter == null) {
                             status = resources.getString(R.string.end_of_book)
@@ -318,7 +324,7 @@ private fun DataSyncScreen() {
                 }
             }
             .onFailure { error ->
-                status = resources.getString(R.string.open_failed, error.message)
+                status = resources.getString(R.string.open_failed, errorText(error))
             }
     }
 
@@ -384,7 +390,7 @@ private fun DataSyncScreen() {
                     }
                 }
                 .onFailure { error ->
-                    mainHandler.post { status = resources.getString(R.string.open_failed, error.message) }
+                    mainHandler.post { status = resources.getString(R.string.open_failed, errorText(error)) }
                 }
         }
     }
@@ -415,7 +421,7 @@ private fun DataSyncScreen() {
             .onSuccess { (format, source) ->
                 openSource(source, format, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter)
             }
-            .onFailure { status = resources.getString(R.string.open_failed, it.message) }
+            .onFailure { status = resources.getString(R.string.open_failed, errorText(it)) }
     }
 
     /** Adds a picked file to history with the chosen backend and opens it (call off the main thread). */
@@ -429,7 +435,7 @@ private fun DataSyncScreen() {
                 openSource(source, format, entry.name, offset = entry.offset, historyId = entry.id, chooseChapter = true)
             }
         }.onFailure { error ->
-            mainHandler.post { status = resources.getString(R.string.file_read_failed, error.message) }
+            mainHandler.post { status = resources.getString(R.string.file_read_failed, errorText(error)) }
         }
     }
 
@@ -481,7 +487,7 @@ private fun DataSyncScreen() {
                             addAndOpen(uri, name, backends.firstOrNull() ?: DocumentFormats.forName(name))
                         }
                     }.onFailure { error ->
-                        mainHandler.post { status = resources.getString(R.string.file_read_failed, error.message) }
+                        mainHandler.post { status = resources.getString(R.string.file_read_failed, errorText(error)) }
                     }
                 }
             }
@@ -544,7 +550,7 @@ private fun DataSyncScreen() {
                         remoteHistoryRequest.value = true
                         openSource(source, format, entry.name, offset = entry.offset, historyId = entry.id, chapter = entry.chapter)
                     }
-                    .onFailure { sendHistoryError(resources.getString(R.string.history_open_failed, entry.name, it.message)) }
+                    .onFailure { sendHistoryError(resources.getString(R.string.history_open_failed, entry.name, errorText(it))) }
             }
         }
     }
@@ -701,7 +707,7 @@ private fun DataSyncScreen() {
                                             editingId = null
                                             historyEditMode = false
                                             status = resources.getString(R.string.history_saved)
-                                        }.onFailure { status = resources.getString(R.string.history_save_failed, it.message) }
+                                        }.onFailure { status = resources.getString(R.string.history_save_failed, errorText(it)) }
                                     }
                                 }
                             },

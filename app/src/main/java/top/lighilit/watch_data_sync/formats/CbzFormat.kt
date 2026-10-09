@@ -21,7 +21,7 @@ internal class CbzFormat : DocumentFormat {
 
     /** Opened once as a seekable descriptor: no copy, no reopen. */
     override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?): TextSource =
-        CbzSource { context.contentResolver.openFileDescriptor(uri, "r") ?: error("Unable to open $name") }
+        CbzSource { context.contentResolver.openFileDescriptor(uri, "r") ?: throw OpenLocalFileException(name) }
 
     override fun source(file: File, name: String, context: Context?): TextSource =
         CbzSource { ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) }

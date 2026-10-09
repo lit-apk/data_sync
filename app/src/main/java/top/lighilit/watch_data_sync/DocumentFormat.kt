@@ -39,6 +39,13 @@ internal interface DocumentFormat {
     val positionUnit: PositionUnit get() = PositionUnit.CHARACTER
 }
 
+/**
+ * Thrown by a backend when a file cannot be opened as a local, seekable file (e.g. a
+ * cloud provider returned nothing). Not a bug: the UI shows a translated hint instead
+ * of a stack trace (see `errorText` in MainActivity).
+ */
+internal class OpenLocalFileException(val name: String) : java.io.IOException("Failed to open $name, maybe not a local file?")
+
 /** One generated registry entry: a backend and the types from its `@DocumentBackend`. */
 internal class BackendRegistration(val format: DocumentFormat, val mimeTypes: List<MimeType>)
 

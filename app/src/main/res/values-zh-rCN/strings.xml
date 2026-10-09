@@ -102,4 +102,5 @@
     <string name="backend_pdf_rich">PDF：逐页显示文字和图片</string>
     <string name="backend_cbz">漫画：每页一张图片</string>
     <string name="backend_fb2">FictionBook：按章节显示文字和图片</string>
+    <string name="failed_open_local_file">无法打开 %1$s，可能不是本地文件？</string>
 </resources>

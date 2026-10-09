@@ -23,8 +23,8 @@ internal object EpubTextExtractor : DocumentFormat {
     override fun source(context: Context, uri: Uri, name: String, cache: DocumentCache?): TextSource {
         // One seekable open for all entry reads; the stream is only a fallback for readers
         // without an archive (e.g. tests).
-        val archive = EpubArchive { context.contentResolver.openFileDescriptor(uri, "r") ?: error("Unable to open $name") }
-        return EpubTextSource({ context.contentResolver.openInputStream(uri) ?: error("Unable to open $name") }, archive)
+        val archive = EpubArchive { context.contentResolver.openFileDescriptor(uri, "r") ?: throw OpenLocalFileException(name) }
+        return EpubTextSource({ context.contentResolver.openInputStream(uri) ?: throw OpenLocalFileException(name) }, archive)
     }
     override fun source(file: File, name: String, context: Context?): TextSource =
         EpubTextSource({ file.inputStream() }, EpubArchive { ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) })
