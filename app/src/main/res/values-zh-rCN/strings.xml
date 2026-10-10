@@ -12,8 +12,8 @@
     <string name="settings_modified">设置已修改。</string>
     <string name="save">保存</string>
     <string name="discard">放弃</string>
-    <string name="message_size_range">消息大小必须为 1 到 %1$d</string>
-    <string name="history_count_range">历史条目数必须为 1 到 %1$d</string>
+    <string name="message_size_range">消息大小必须为 %1$d 到 %2$d</string>
+    <string name="history_count_range">历史条目数必须为 %1$d 到 %2$d</string>
     <string name="settings_saved">设置已保存</string>
     <string name="no_active_transfer">没有活动的传输</string>
     <string name="no_unsent_content">没有未发送的内容</string>
@@ -70,9 +70,9 @@
     <string name="cache_size">缓存大小 (MB)</string>
     <string name="image_size">图片大小限制 (KB)</string>
     <string name="image_reduce">图片缩小比例 (%)</string>
-    <string name="cache_size_range">缓存大小必须为 1 到 %1$d MB</string>
-    <string name="image_size_positive">图片大小必须为正数</string>
-    <string name="image_reduce_range">图片缩小比例必须为 1 到 100</string>
+    <string name="cache_size_range">缓存大小必须为 %1$d 到 %2$d MB</string>
+    <string name="image_size_range">图片大小必须为 %1$d 到 %2$d KB</string>
+    <string name="image_reduce_range">图片缩小比例必须为 %1$d 到 %2$d</string>
     <string name="character_offset">字符位置：%1$d</string>
     <string name="character_offset_label">字符位置</string>
     <string name="offset_invalid">位置必须为自然数（页码从 1 开始）</string>

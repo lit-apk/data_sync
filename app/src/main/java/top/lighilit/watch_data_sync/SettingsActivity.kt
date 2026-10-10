@@ -45,11 +45,23 @@ internal const val PREFERENCES = "data_sync_settings"
 internal const val CHUNK_SIZE_KEY = "chunk_size"
 internal const val HISTORY_LIMIT_KEY = "history_limit"
 internal const val BACKUP_ON_SEND_KEY = "backup_on_send"
-internal const val MAX_CHUNK_SIZE = 10_000
-internal const val MAX_HISTORY_LIMIT = 100
-internal const val MAX_CACHE_SIZE_MB = 512
-internal const val MAX_IMAGE_SIZE_KB = 10240
-internal const val MAX_IMAGE_REDUCE_PERCENT = 100
+
+private data class NumberSetting(
+    val key: String,
+    val labelRes: Int,
+    val rangeRes: Int,
+    val default: Int,
+    val max: Int,
+    val min: Int = 1,
+)
+
+private val NUMBER_SETTINGS = listOf(
+    NumberSetting(CHUNK_SIZE_KEY, R.string.max_characters, R.string.message_size_range, FileTransfer.DEFAULT_CHUNK_SIZE, 10_000),
+    NumberSetting(HISTORY_LIMIT_KEY, R.string.history_entries, R.string.history_count_range, 10, 100),
+    NumberSetting(CACHE_SIZE_KEY, R.string.cache_size, R.string.cache_size_range, DEFAULT_CACHE_SIZE_MB, 512),
+    NumberSetting(IMAGE_SIZE_KEY, R.string.image_size, R.string.image_size_range, DEFAULT_IMAGE_SIZE_KB, 10_240),
+    NumberSetting(IMAGE_REDUCE_KEY, R.string.image_reduce, R.string.image_reduce_range, DEFAULT_IMAGE_REDUCE_PERCENT, 100),
+)
 
 class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,77 +83,34 @@ private fun SettingsScreen(onBack: () -> Unit) {
     val preferences = remember { context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
     val historyStore = remember { ReadingHistoryStore(context.applicationContext) }
     var status by remember { mutableStateOf("") }
-    var savedChunkSize by rememberSaveable {
-        mutableStateOf(preferences.getInt(CHUNK_SIZE_KEY, FileTransfer.DEFAULT_CHUNK_SIZE).toString())
+    var savedValues by rememberSaveable {
+        mutableStateOf(NUMBER_SETTINGS.associate { it.key to preferences.getInt(it.key, it.default).toString() })
     }
-    var savedHistoryLimit by rememberSaveable {
-        mutableStateOf(preferences.getInt(HISTORY_LIMIT_KEY, 10).toString())
-    }
-    var savedBackupOnSend by rememberSaveable {
+    var values by rememberSaveable { mutableStateOf(savedValues) }
+    var backupOnSend by rememberSaveable {
         mutableStateOf(preferences.getBoolean(BACKUP_ON_SEND_KEY, false))
     }
-    var savedCacheSize by rememberSaveable {
-        mutableStateOf(preferences.getInt(CACHE_SIZE_KEY, DEFAULT_CACHE_SIZE_MB).toString())
-    }
-    var savedImageSize by rememberSaveable {
-        mutableStateOf(preferences.getInt(IMAGE_SIZE_KEY, DEFAULT_IMAGE_SIZE_KB).toString())
-    }
-    var savedImageReduce by rememberSaveable {
-        mutableStateOf(preferences.getInt(IMAGE_REDUCE_KEY, DEFAULT_IMAGE_REDUCE_PERCENT).toString())
-    }
-    var chunkSizeText by rememberSaveable { mutableStateOf(savedChunkSize) }
-    var historyLimitText by rememberSaveable { mutableStateOf(savedHistoryLimit) }
-    var backupOnSend by rememberSaveable { mutableStateOf(savedBackupOnSend) }
-    var cacheSize by rememberSaveable { mutableStateOf(savedCacheSize) }
-    var imageSize by rememberSaveable { mutableStateOf(savedImageSize) }
-    var imageReduce by rememberSaveable { mutableStateOf(savedImageReduce) }
+    var savedBackupOnSend by rememberSaveable { mutableStateOf(backupOnSend) }
     var showLeaveDialog by rememberSaveable { mutableStateOf(false) }
     val controller = remember { DataSyncController(context.applicationContext) }
 
-    val hasUnsavedChanges = chunkSizeText != savedChunkSize ||
-        historyLimitText != savedHistoryLimit || backupOnSend != savedBackupOnSend || cacheSize != savedCacheSize || imageSize != savedImageSize || imageReduce != savedImageReduce
+    val hasUnsavedChanges = values != savedValues || backupOnSend != savedBackupOnSend
 
     fun saveSettings(): Boolean {
-        val chunkSize = chunkSizeText.toIntOrNull()
-        val limit = historyLimitText.toIntOrNull()
-        val cacheSizeValue = cacheSize.toIntOrNull()
-        val imageSizeValue = imageSize.toIntOrNull()
-        val imageReduceValue = imageReduce.toIntOrNull()
-        if (chunkSize == null || chunkSize !in 1..MAX_CHUNK_SIZE) {
-            status = resources.getString(R.string.message_size_range, MAX_CHUNK_SIZE)
-            return false
+        val prefEdit = preferences.edit()
+        for (setting in NUMBER_SETTINGS) {
+            val value = values[setting.key]?.toIntOrNull()
+            if (value == null || value !in setting.min..setting.max) {
+                status = resources.getString(setting.rangeRes, setting.min, setting.max)
+                return false
+            }
+            prefEdit.putInt(setting.key, value)
         }
-        if (limit == null || limit !in 1..MAX_HISTORY_LIMIT) {
-            status = resources.getString(R.string.history_count_range, MAX_HISTORY_LIMIT)
-            return false
-        }
-        if (cacheSizeValue == null || cacheSizeValue !in 1..MAX_CACHE_SIZE_MB) {
-            status = resources.getString(R.string.cache_size_range, MAX_CACHE_SIZE_MB)
-            return false
-        }
-        if (imageSizeValue == null || imageSizeValue !in 1..MAX_IMAGE_SIZE_KB) {
-            status = resources.getString(R.string.image_size_positive)
-            return false
-        }
-        if (imageReduceValue == null || imageReduceValue !in 1..MAX_IMAGE_REDUCE_PERCENT) {
-            status = resources.getString(R.string.image_reduce_range)
-            return false
-        }
-        preferences.edit()
-            .putInt(CHUNK_SIZE_KEY, chunkSize)
-            .putInt(HISTORY_LIMIT_KEY, limit)
-            .putBoolean(BACKUP_ON_SEND_KEY, backupOnSend)
-            .putInt(CACHE_SIZE_KEY, cacheSizeValue)
-            .putInt(IMAGE_SIZE_KEY, imageSizeValue)
-            .putInt(IMAGE_REDUCE_KEY, imageReduceValue)
-            .apply()
-        historyStore.trim(limit)
-        savedChunkSize = chunkSizeText
-        savedHistoryLimit = historyLimitText
+        prefEdit.putBoolean(BACKUP_ON_SEND_KEY, backupOnSend)
+        prefEdit.apply()
+        savedValues = values
         savedBackupOnSend = backupOnSend
-        savedCacheSize = cacheSize
-        savedImageSize = imageSize
-        savedImageReduce = imageReduce
+        historyStore.trim(values[HISTORY_LIMIT_KEY]!!.toInt())
         status = resources.getString(R.string.settings_saved)
         return true
     }
@@ -181,20 +150,10 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text(stringResource(R.string.authorize_watch)) }
-            SettingsNumberField(stringResource(R.string.max_characters), chunkSizeText) {
-                if (it.all(Char::isDigit)) chunkSizeText = it
-            }
-            SettingsNumberField(stringResource(R.string.history_entries), historyLimitText) {
-                if (it.all(Char::isDigit)) historyLimitText = it
-            }
-            SettingsNumberField(stringResource(R.string.cache_size), cacheSize) {
-                if (it.all(Char::isDigit)) cacheSize = it
-            }
-            SettingsNumberField(stringResource(R.string.image_size), imageSize) {
-                if (it.all(Char::isDigit)) imageSize = it
-            }
-            SettingsNumberField(stringResource(R.string.image_reduce), imageReduce) {
-                if (it.all(Char::isDigit)) imageReduce = it
+            NUMBER_SETTINGS.forEach { setting ->
+                SettingsNumberField(stringResource(setting.labelRes), values[setting.key] ?: "") {
+                    if (it.all(Char::isDigit)) values = values.toMutableMap().apply { this[setting.key] = it }
+                }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(stringResource(R.string.backup_when_sending))
