@@ -19,6 +19,9 @@ class DocumentFormatTest {
     fun mimeTypeIsDetectedFromProviderType() {
         assertEquals(MimeType.EPUB, MimeType.fromType("application/epub+zip"))
         assertEquals(MimeType.TEXT, MimeType.fromType("text/markdown; charset=utf-8"))
+        // Alternative MIME strings some apps send are recognized too.
+        assertEquals(MimeType.CBZ, MimeType.fromType("application/x-cbz"))
+        assertEquals(MimeType.FB2, MimeType.fromType("application/x-fictionbook"))
         assertNull(MimeType.fromType("application/octet-stream"))
         assertNull(MimeType.fromType(null))
     }

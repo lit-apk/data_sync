@@ -12,6 +12,7 @@ import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.activity.ComponentActivity
+import androidx.core.content.IntentCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -44,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,12 +68,35 @@ import top.lighilit.watch_data_sync.ui.theme.Watch_data_syncTheme
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
+    /** File handed over by another app ("Open with" / "Share"), not yet opened. */
+    private val incoming = mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         CrashReporter.install(applicationContext)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { Watch_data_syncTheme { DataSyncScreen() } }
+        // On recreation (e.g. rotation) the launch intent is the same; it was already opened.
+        if (savedInstanceState == null) incoming.value = intent.documentUri()
+        setContent {
+            Watch_data_syncTheme {
+                DataSyncScreen(incoming.value) { incoming.value = null }
+            }
+        }
     }
+
+    /** singleTop: a second "Open with" while running arrives here instead of a new activity. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.documentUri()?.let { incoming.value = it }
+    }
+}
+
+/** The document of an ACTION_VIEW ("Open with") or ACTION_SEND ("Share") intent. */
+private fun Intent.documentUri(): Uri? = when (action) {
+    Intent.ACTION_VIEW -> data
+    Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(this, Intent.EXTRA_STREAM, Uri::class.java)
+    else -> null
 }
 
 private val DOCUMENT_MIME_TYPES: Array<String>
@@ -79,7 +104,7 @@ private val DOCUMENT_MIME_TYPES: Array<String>
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DataSyncScreen() {
+private fun DataSyncScreen(incomingUri: Uri? = null, onIncomingHandled: () -> Unit = {}) {
     val context = LocalContext.current
     val resources = LocalResources.current
     val preferences = remember { context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE) }
@@ -428,9 +453,9 @@ private fun DataSyncScreen() {
     }
 
     /** Adds a picked file to history with the chosen backend and opens it (call off the main thread). */
-    fun addAndOpen(uri: Uri, name: String, format: DocumentFormat) {
+    fun addAndOpen(uri: Uri, name: String, format: DocumentFormat, forceBackup: Boolean = false) {
         runCatching {
-            val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false)
+            val backupOnSend = preferences.getBoolean(BACKUP_ON_SEND_KEY, false) || forceBackup
             val entry = historyStore.addUri(uri, name, backupOnSend, historyLimit(), backend = format.id)
             val source = historyStore.source(entry, format)
             mainHandler.post {
@@ -463,38 +488,48 @@ private fun DataSyncScreen() {
         )
     }
 
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) {
+    /**
+     * Opens a file chosen in the picker or handed over by another app. Other apps grant
+     * only temporary access; when it cannot be kept, the file is backed up so the history
+     * entry still opens later.
+     */
+    fun openPicked(uri: Uri) {
+        ioExecutor.execute {
             runCatching {
-                ioExecutor.execute {
-                    runCatching {
-                        runCatching {
-                            context.contentResolver.takePersistableUriPermission(
-                                uri,
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            )
+                val persisted = runCatching {
+                    context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }.isSuccess
+                val name = historyStore.displayName(uri)
+                val backends = DocumentFormats.backendsFor(historyStore.mimeType(uri, name))
+                if (backends.size > 1) {
+                    // Several backends can open this type: ask first (before the chapter dialog).
+                    mainHandler.post {
+                        backendDialog = backends
+                        backendDialogAction = { format ->
+                            backendDialog = null
+                            backendDialogAction = null
+                            ioExecutor.execute { addAndOpen(uri, name, format, forceBackup = !persisted) }
                         }
-                        val name = historyStore.displayName(uri)
-                        val backends = DocumentFormats.backendsFor(historyStore.mimeType(uri, name))
-                        if (backends.size > 1) {
-                            // Several backends can open this type: ask first (before the chapter dialog).
-                            mainHandler.post {
-                                backendDialog = backends
-                                backendDialogAction = { format ->
-                                    backendDialog = null
-                                    backendDialogAction = null
-                                    ioExecutor.execute { addAndOpen(uri, name, format) }
-                                }
-                            }
-                        } else {
-                            addAndOpen(uri, name, backends.firstOrNull() ?: DocumentFormats.forName(name))
-                        }
-                    }.onFailure { error ->
-                        mainHandler.post { status = resources.getString(R.string.file_read_failed, errorText(error)) }
                     }
+                } else {
+                    addAndOpen(uri, name, backends.firstOrNull() ?: DocumentFormats.forName(name), forceBackup = !persisted)
                 }
+            }.onFailure { error ->
+                mainHandler.post { status = resources.getString(R.string.file_read_failed, errorText(error)) }
             }
         }
+    }
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) openPicked(uri)
+    }
+
+    // A file from another app: show the File tab and open it like a picked file.
+    LaunchedEffect(incomingUri) {
+        val uri = incomingUri ?: return@LaunchedEffect
+        selectedTab = 1
+        openPicked(uri)
+        onIncomingHandled()
     }
 
     val editFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->

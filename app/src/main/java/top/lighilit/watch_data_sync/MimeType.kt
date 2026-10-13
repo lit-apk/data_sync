@@ -10,13 +10,23 @@ import android.net.Uri
  *
  * Public (not internal) because [DocumentBackend] uses it as an annotation argument.
  */
-enum class MimeType(val value: String, private val extensions: List<String>, val pickerType: String = value) {
+enum class MimeType(
+    val value: String,
+    private val extensions: List<String>,
+    val pickerType: String = value,
+    /**
+     * Other MIME strings apps use for this type. Together with [value] they generate the
+     * "Open with"/"Share" intent filters at build time (generateOpenWithManifest in
+     * app/build.gradle.kts parses this file), so keep each entry on one line.
+     */
+    val aliases: List<String> = emptyList()
+) {
     TEXT("text/plain", listOf("txt", "md", "log", "csv"), pickerType = "text/*"),
     JSON("application/json", listOf("json")),
     EPUB("application/epub+zip", listOf("epub")),
     PDF("application/pdf", listOf("pdf")),
-    CBZ("application/vnd.comicbook+zip", listOf("cbz")),
-    FB2("application/x-fictionbook+xml", listOf("fb2")),
+    CBZ("application/vnd.comicbook+zip", listOf("cbz"), aliases = listOf("application/x-cbz")),
+    FB2("application/x-fictionbook+xml", listOf("fb2"), aliases = listOf("application/x-fictionbook")),
     MOBI("application/x-mobipocket-ebook", listOf("mobi", "prc", "azw"));
 
     companion object {
@@ -29,7 +39,8 @@ enum class MimeType(val value: String, private val extensions: List<String>, val
         /** By MIME string, e.g. from a content provider; any other `text/` type is [TEXT]. */
         fun fromType(type: String?): MimeType? {
             val normalized = type?.substringBefore(';')?.trim()?.lowercase() ?: return null
-            return entries.firstOrNull { it.value == normalized } ?: TEXT.takeIf { normalized.startsWith("text/") }
+            return entries.firstOrNull { it.value == normalized || normalized in it.aliases }
+                ?: TEXT.takeIf { normalized.startsWith("text/") }
         }
 
         /** The provider's reported type when known, otherwise the file extension. */
