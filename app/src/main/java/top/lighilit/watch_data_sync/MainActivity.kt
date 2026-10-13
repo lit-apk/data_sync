@@ -52,6 +52,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
@@ -690,6 +692,7 @@ private fun DataSyncScreen() {
                             editSource = editSource,
                             editBackup = editBackup,
                             onEntryClick =(::resume),
+                            onCollapse = { editingId = null; editChapterExpanded = false },
                             onEdit = { entry ->
                                 editingId = entry.id
                                 val format = historyStore.format(entry)
@@ -795,6 +798,7 @@ private fun HistoryView(
     editBackup: Boolean,
     onEntryClick: (ReadingHistory) -> Unit,
     onEdit: (ReadingHistory) -> Unit,
+    onCollapse: () -> Unit,
     onOffsetChange: (String) -> Unit,
     onChapterChange: (Int) -> Unit,
     onChapterToggle: () -> Unit,
@@ -815,14 +819,29 @@ private fun HistoryView(
         }
     }
     history.forEach { entry ->
-        Card(
-            Modifier.fillMaxWidth().clickable {
-                if (editMode) onEdit(entry) else onEntryClick(entry)
-            }
-        ) {
+        val expanded = editingId == entry.id
+        // In edit mode the header toggles the entry's editor: tap to expand, tap again to collapse.
+        val toggle = { if (expanded) onCollapse() else onEdit(entry) }
+        // Collapsed in edit mode: the whole card expands it. Once expanded, only the header
+        // collapses it, so taps on the editor's own controls are not swallowed.
+        Card(Modifier.fillMaxWidth().then(if (editMode && !expanded) Modifier.clickable { onEdit(entry) } else Modifier)) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(entry.name, style = MaterialTheme.typography.titleSmall)
-                if (editingId == entry.id) {
+                Row(
+                    Modifier.fillMaxWidth().clickable { if (editMode) toggle() else onEntryClick(entry) },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (editMode) {
+                        // ▶ collapsed, rotated to ▼ when expanded.
+                        val angle by animateFloatAsState(if (expanded) 90f else 0f, label = "historyTriangle")
+                        Text(
+                            "▶",
+                            Modifier.padding(end = 10.dp).rotate(angle),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Text(entry.name, style = MaterialTheme.typography.titleSmall)
+                }
+                if (expanded) {
                     // Backend switcher: only when several backends can open this file type.
                     if (editBackends.size > 1) {
                         Text(stringResource(R.string.select_backend), style = MaterialTheme.typography.labelMedium)
