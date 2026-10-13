@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -34,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -121,6 +124,13 @@ private fun SettingsScreen(onBack: () -> Unit) {
 
     BackHandler { requestLeave() }
 
+    // Re-checked on every resume, so returning from the system dialog updates the status.
+    var unrestricted by remember { mutableStateOf(BackgroundAccess.isUnrestricted(context)) }
+    LifecycleResumeEffect(Unit) {
+        unrestricted = BackgroundAccess.isUnrestricted(context)
+        onPauseOrDispose { }
+    }
+
     DisposableEffect(controller) {
         controller.connect({ status = it }, registerMessages = false)
         onDispose { controller.close() }
@@ -150,6 +160,27 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text(stringResource(R.string.authorize_watch)) }
+            // The watch can only page while the phone is locked if the app is not restricted.
+            Text(
+                stringResource(if (unrestricted) R.string.background_unrestricted else R.string.background_restricted),
+                color = if (unrestricted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+            )
+            if (BackgroundAccess.isXiaomi()) {
+                // On Xiaomi, request() opens the Battery saver page, so it can also change it back.
+                BackgroundButton(
+                    unrestricted,
+                    R.string.allow_background, { BackgroundAccess.request(context) },
+                    R.string.change_allow_background, { BackgroundAccess.request(context) }
+                )
+            } else {
+                // Elsewhere the exemption dialog only grants; changing it later needs the
+                // app's settings page.
+                BackgroundButton(
+                    unrestricted,
+                    R.string.allow_background, { BackgroundAccess.request(context) },
+                    R.string.open_app_settings, { BackgroundAccess.openAppSettings(context) }
+                )
+            }
             NUMBER_SETTINGS.forEach { setting ->
                 SettingsNumberField(stringResource(setting.labelRes), values[setting.key] ?: "") {
                     if (it.all(Char::isDigit)) values = values.toMutableMap().apply { this[setting.key] = it }
@@ -180,6 +211,22 @@ private fun SettingsScreen(onBack: () -> Unit) {
                 Button(onClick = onBack) { Text(stringResource(R.string.discard)) }
             }
         )
+    }
+}
+
+/** Background-access button: filled while restricted ([allow]), outlined once allowed ([change]). */
+@Composable
+private fun BackgroundButton(
+    unrestricted: Boolean,
+    @StringRes allowLabel: Int,
+    allow: () -> Unit,
+    @StringRes changeLabel: Int,
+    change: () -> Unit
+) {
+    if (unrestricted) {
+        OutlinedButton(onClick = change, modifier = Modifier.fillMaxWidth()) { Text(stringResource(changeLabel)) }
+    } else {
+        Button(onClick = allow, modifier = Modifier.fillMaxWidth()) { Text(stringResource(allowLabel)) }
     }
 }
 

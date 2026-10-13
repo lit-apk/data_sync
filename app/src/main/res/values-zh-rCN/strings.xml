@@ -103,4 +103,10 @@
     <string name="backend_cbz">漫画：每页一张图片</string>
     <string name="backend_fb2">FictionBook：按章节显示文字和图片</string>
     <string name="failed_open_local_file">无法打开 %1$s，可能不是本地文件？</string>
+    <string name="background_unrestricted">后台：不受限制，锁屏时手表仍可翻页</string>
+    <string name="background_restricted">后台：受省电限制，锁屏时手表可能无法翻页</string>
+    <string name="allow_background">允许后台活动</string>
+    <string name="change_allow_background">修改后台活动许可</string>
+    <string name="open_app_settings">打开应用设置（省电策略 → 无限制）</string>
+    <string name="background_how_to">点按下方按钮并选择“无限制”（或允许后台活动），也可稍后在“设置”中修改。</string>
 </resources>

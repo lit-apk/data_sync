@@ -52,6 +52,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
@@ -555,6 +556,13 @@ private fun DataSyncScreen() {
         }
     }
 
+    // Re-checked on every resume, so returning from the system dialog clears the warning.
+    var backgroundUnrestricted by remember { mutableStateOf(BackgroundAccess.isUnrestricted(context)) }
+    LifecycleResumeEffect(Unit) {
+        backgroundUnrestricted = BackgroundAccess.isUnrestricted(context)
+        onPauseOrDispose { }
+    }
+
     DisposableEffect(controller) {
         controller.connect(onStatus = { status = it })
         onDispose {
@@ -645,6 +653,25 @@ private fun DataSyncScreen() {
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(stringResource(R.string.submit)) }
                     } else {
+                        // Without background access the watch stops paging once the phone locks.
+                        if (!backgroundUnrestricted) {
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        stringResource(R.string.background_restricted),
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    Text(
+                                        stringResource(R.string.background_how_to),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Button(
+                                        onClick = { BackgroundAccess.request(context) },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text(stringResource(R.string.allow_background)) }
+                                }
+                            }
+                        }
                         Button(
                             onClick = { filePicker.launch(DOCUMENT_MIME_TYPES) },
                             modifier = Modifier.fillMaxWidth()

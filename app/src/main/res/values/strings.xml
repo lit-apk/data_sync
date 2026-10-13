@@ -103,4 +103,10 @@
     <string name="backend_cbz">Comic: one image per page</string>
     <string name="backend_fb2">FictionBook: text and images, by chapter</string>
     <string name="failed_open_local_file">Failed to open %1$s, maybe not a local file?</string>
+    <string name="background_unrestricted">Background: not restricted; the watch can page while the phone is locked</string>
+    <string name="background_restricted">Background: restricted by battery saving; the watch may stop paging while the phone is locked</string>
+    <string name="allow_background">Allow background activity</string>
+    <string name="change_allow_background">Change background activity grant</string>
+    <string name="open_app_settings">Open app settings (Power → Battery saver: No restrictions)</string>
+    <string name="background_how_to">Tap the button below and choose "No restrictions" (or allow background activity), or change it later in Settings.</string>
 </resources>

@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Lets the app ask to be exempt from battery optimization (see BackgroundAccess). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <queries>
         <package android:name="com.xiaomi.wearable" />
         <package android:name="com.mi.health" />
