@@ -16,7 +16,8 @@ enum class MimeType(val value: String, private val extensions: List<String>, val
     EPUB("application/epub+zip", listOf("epub")),
     PDF("application/pdf", listOf("pdf")),
     CBZ("application/vnd.comicbook+zip", listOf("cbz")),
-    FB2("application/x-fictionbook+xml", listOf("fb2"));
+    FB2("application/x-fictionbook+xml", listOf("fb2")),
+    MOBI("application/x-mobipocket-ebook", listOf("mobi", "prc", "azw"));
 
     companion object {
         /** By file extension; unknown extensions are read as plain text. */
