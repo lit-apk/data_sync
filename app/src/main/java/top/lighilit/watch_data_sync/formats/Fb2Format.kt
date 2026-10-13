@@ -16,7 +16,7 @@ import javax.xml.parsers.DocumentBuilderFactory
  */
 @DocumentBackend(MimeType.FB2)
 internal class Fb2Format : DocumentFormat {
-    override val description = R.string.backend_fb2
+    override val description = R.string.backend_chaptered_rich
     override val richText = true
     override val chaptered = true
     override val positionUnit = PositionUnit.CHAPTER

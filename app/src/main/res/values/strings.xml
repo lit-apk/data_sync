@@ -97,11 +97,10 @@
     <string name="chapter_value">Chapter: %1$d</string>
     <string name="select_backend">Open with</string>
     <string name="backend_plain_text">Plain text</string>
-    <string name="backend_epub">EPUB: text with images, by chapter</string>
+    <string name="backend_chaptered_rich">text and images, by chapter</string>
     <string name="backend_pdf">PDF: each page as an image</string>
     <string name="backend_pdf_rich">PDF: text and images, page by page</string>
     <string name="backend_cbz">Comic: one image per page</string>
-    <string name="backend_fb2">FictionBook: text and images, by chapter</string>
     <string name="failed_open_local_file">Failed to open %1$s, maybe not a local file?</string>
     <string name="background_unrestricted">Background: not restricted; the watch can page while the phone is locked</string>
     <string name="background_restricted">Background: restricted by battery saving; the watch may stop paging while the phone is locked</string>

@@ -14,7 +14,7 @@ import org.w3c.dom.Element
 
 @DocumentBackend(MimeType.EPUB)
 internal object EpubTextExtractor : DocumentFormat {
-    override val description = R.string.backend_epub
+    override val description = R.string.backend_chaptered_rich
     override val richText = true
     override val chaptered = true
 
@@ -186,6 +186,9 @@ internal object EpubTextExtractor : DocumentFormat {
             .filter { it.isNotEmpty() }
             .joinToString("\n\n")
     }
+
+    /** HTML -> plain text, shared with other HTML-based backends (MOBI). */
+    internal fun htmlToTextForSource(html: String): String = htmlToText(html)
 
     internal fun decodeEntitiesForSource(text: String): String {
         return decodeEntities(text)
