@@ -44,7 +44,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            app/build/outputs/apk/release/app-release.apk
+          # Idempotent: if this tag already has a release (re-run or duplicate tag push),
+          # replace its APK instead of failing on "release already exists".
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              app/build/outputs/apk/release/app-release.apk
+          fi
