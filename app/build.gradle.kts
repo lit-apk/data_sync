@@ -106,6 +106,43 @@ val generateOpenWithManifest by tasks.registering(GenerateOpenWithManifest::clas
     manifest.set(layout.buildDirectory.file("generated/openWithManifest/AndroidManifest.xml"))
 }
 
+/** Runs a git command, returning its trimmed stdout or "" when git is unavailable or fails. */
+fun git(vararg cmd: String): String =
+    runCatching {
+        val process = ProcessBuilder(*cmd).redirectErrorStream(true).start()
+        val out = process.inputStream.bufferedReader().readText()
+        if (process.waitFor() == 0) out.trim() else ""
+    }.getOrElse { "" }
+
+/**
+ * Captures git commit, branch, and dirty state at build time and writes them into a generated
+ * Java source file. Runs in a task (not configuration time) so the configuration cache stays
+ * happy. The generated file is added as a source directory so the app can read the values.
+ */
+val gitInfoSourceDir = layout.buildDirectory.dir("generated/gitInfo/java").get().asFile
+val gitBuildInfo by tasks.registering {
+    notCompatibleWithConfigurationCache("The git info task is implemented in the build script")
+    outputs.dir(gitInfoSourceDir)
+    doLast {
+        val packageDir = File(gitInfoSourceDir, "top/lighilit/watch_data_sync")
+        packageDir.mkdirs()
+        val commit = git("git", "rev-parse", "HEAD")
+        val branch = git("git", "rev-parse", "--abbrev-ref", "HEAD")
+        val dirty = if (git("git", "status", "--porcelain").isNotEmpty()) "1" else "0"
+        File(packageDir, "GitInfo.java").writeText(
+            "package top.lighilit.watch_data_sync;\n\n" +
+                "final class GitInfo {\n" +
+                "    static final String COMMIT = \"$commit\";\n" +
+                "    static final String BRANCH = \"$branch\";\n" +
+                "    static final String DIRTY = \"$dirty\";\n" +
+                "}\n"
+        )
+    }
+}
+
+android.sourceSets["main"].java.directories.add(gitInfoSourceDir.absolutePath)
+tasks.named("preBuild") { dependsOn(gitBuildInfo) }
+
 androidComponents {
     onVariants { variant ->
         variant.sources.manifests.addGeneratedManifestFile(generateOpenWithManifest, GenerateOpenWithManifest::manifest)

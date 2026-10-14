@@ -1,5 +1,6 @@
 package top.lighilit.watch_data_sync
 
+import android.app.ActivityOptions
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -647,7 +648,20 @@ private fun DataSyncScreen(incomingUri: Uri? = null, onIncomingHandled: () -> Un
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+                title = {
+                    Text(
+                        stringResource(R.string.app_name),
+                        Modifier.clickable {
+                            val intent = Intent(context, BuildInfoActivity::class.java)
+                            context.startActivity(
+                                intent,
+                                ActivityOptions.makeCustomAnimation(
+                                    context, R.anim.slide_in_left, R.anim.slide_out_right
+                                ).toBundle()
+                            )
+                        }
+                    )
+                },
                 actions = {
                     IconButton(onClick = {
                         context.startActivity(Intent(context, SettingsActivity::class.java))
