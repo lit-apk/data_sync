@@ -475,6 +475,24 @@ private class EpubTextReader(
     private var hasOutput = false
     private var afterBlockBreak = false
 
+    /** Newlines written since the last other character; block breaks top this up to 2. */
+    private var trailingNewlines = 0
+
+    /** Queues one output character, tracking trailing newlines. */
+    private fun emit(character: Char) {
+        pending.addLast(character)
+        trailingNewlines = if (character == '\n') trailingNewlines + 1 else 0
+    }
+
+    /**
+     * Ends the current block with at most one blank line. Adjacent block ends (e.g.
+     * `</p></div>`, or a block end at a chapter boundary) do not stack extra blank lines.
+     */
+    private fun blockBreak() {
+        if (hasOutput) while (trailingNewlines < 2) emit('\n')
+        afterBlockBreak = true
+    }
+
     override fun read(charBuffer: CharArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
         var count = 0
@@ -483,10 +501,7 @@ private class EpubTextReader(
                 if (!fillPending()) {
                     val reader = nextChapter() ?: return if (count == 0) -1 else count
                     chapterReader = reader
-                    if (chapterIndex > 1) {
-                        pending.addLast('\n')
-                        pending.addLast('\n')
-                    }
+                    if (chapterIndex > 1) blockBreak()
                 }
             }
             charBuffer[offset + count] = pending.removeFirst()
@@ -509,8 +524,7 @@ private class EpubTextReader(
                             if (character == ';'.code) break
                             character = readInput()
                         }
-                        EpubTextExtractor.decodeEntitiesForSource(entity.toString())
-                            .forEach { pending.addLast(it) }
+                        EpubTextExtractor.decodeEntitiesForSource(entity.toString()).forEach(::emit)
                     } else if (Character.isWhitespace(first)) {
                         var character = readInput()
                         while (character >= 0 && Character.isWhitespace(character)) {
@@ -518,10 +532,10 @@ private class EpubTextReader(
                         }
                         if (character >= 0) lookahead = character
                         if (hasOutput && !afterBlockBreak && character >= 0 && character != '<'.code) {
-                            pending.addLast(' ')
+                            emit(' ')
                         }
                     } else {
-                        pending.addLast(first.toChar())
+                        emit(first.toChar())
                     }
                     if (pending.isNotEmpty()) {
                         hasOutput = true
@@ -546,12 +560,12 @@ private class EpubTextReader(
             } else if (opening in setOf("script", "style", "head")) {
                 ignoredTag = opening
             } else if (opening == "br") {
-                pending.addLast('\n')
+                // A <br> between blocks would stack on the block's blank line; output has at
+                // most one blank line in a row (2 newlines), so it only breaks inside text.
+                if (trailingNewlines < 2) emit('\n')
                 afterBlockBreak = true
             } else if (closing in BLOCK_TAGS) {
-                pending.addLast('\n')
-                pending.addLast('\n')
-                afterBlockBreak = true
+                blockBreak()
             }
         }
         return pending.isNotEmpty()

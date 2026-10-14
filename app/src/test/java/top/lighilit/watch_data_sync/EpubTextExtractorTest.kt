@@ -50,6 +50,55 @@ class EpubTextExtractorTest {
         assertEquals(SourcePart("\n\nGamma.\n\n", 23, true), source.readPart(13, 20))
     }
 
+    @Test
+    fun indentedAndNestedBlocksDoNotAddExtraBlankLines() {
+        val text = epubSnippetToText("""
+            <div>
+              xx
+            </div>
+
+            <div>
+              <p>yy</p>
+            </div>
+        """)
+
+        assertEquals("xx\n\nyy\n\n", text)
+    }
+
+    @Test
+    fun nbspIndentedBlocksDoNotAddExtraBlankLines() {
+        val text = epubSnippetToText("""
+            <div>
+              &nbsp; &nbsp; xx
+            </div>
+
+            <div>
+              &nbsp; &nbsp; xx
+            </div>
+        """)
+
+        // &nbsp; indentation is kept as spaces; no extra blank lines between the blocks.
+        assertEquals("    xx\n\n    xx\n\n", text)
+    }
+
+    @Test
+    fun brBetweenBlocksDoesNotAddAThirdNewline() {
+        val text = epubSnippetToText("""
+              <div>
+                &nbsp; &nbsp; xx
+              </div>
+
+            <br/>
+
+              <div>
+                &nbsp; &nbsp; xx<br/>yy
+              </div>
+        """)
+
+        // One blank line between blocks; a <br> inside text still breaks the line.
+        assertEquals("    xx\n\n    xx\nyy\n\n", text)
+    }
+
     private fun buildEpub(
         manifest: Map<String, String>,
         spine: List<String>,
@@ -82,5 +131,20 @@ class EpubTextExtractorTest {
             chapters.forEach { (name, content) -> put(name, content) }
         }
         return output.toByteArray()
+    }
+
+    private fun epubSnippetToText(src: String, maxchars: Int = 1000): String {
+        val epub = buildEpub(
+            manifest = mapOf("ch1" to "text/ch1.xhtml"),
+            spine = listOf("ch1"),
+            chapters = mapOf(
+                "OEBPS/text/ch1.xhtml" to """
+                    <html><body>
+                    $src</body></html>
+                """.trimIndent()
+            )
+        )
+        val text = EpubTextExtractor.source { ByteArrayInputStream(epub) }.readPart(0, maxchars)!!.text
+	return text
     }
 }
